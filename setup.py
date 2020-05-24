@@ -12,6 +12,8 @@ from setuptools.command.build_ext import build_ext
 # Project structure and CMake build steps adapted from
 # https://www.benjack.io/2018/02/02/python-cpp-revisited.html
 
+CMAKE_COMMAND = os.environ.get("CMAKE_COMMAND", "cmake")
+
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=''):
         Extension.__init__(self, name, sources=[])
@@ -21,7 +23,7 @@ class CMakeExtension(Extension):
 class CMakeBuild(build_ext):
     def run(self):
         try:
-            out = subprocess.check_output(['cmake', '--version'])
+            out = subprocess.check_output([CMAKE_COMMAND, '--version'])
         except OSError:
             raise RuntimeError(
                 "CMake must be installed to build the following extensions: " +
@@ -62,8 +64,8 @@ class CMakeBuild(build_ext):
             self.distribution.get_version())
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env)
-        subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
+        subprocess.check_call([CMAKE_COMMAND, ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env)
+        subprocess.check_call([CMAKE_COMMAND, '--build', '.'] + build_args, cwd=self.build_temp)
         print()  # Add an empty line for cleaner output
 
 with open('README.md') as f:
@@ -80,6 +82,18 @@ setup(
     author='Michael Linderman',
     author_email='mlinderman@middlebury.edu',
     license=license,
+    url='https://github.com/mlinderm/npsv',
+    scripts=[
+        'scripts/npsv',
+        'scripts/synthBAM',
+        'scripts/vcf2bed',
+        'scripts/vcf2samplot',
+        'scripts/svviz22vcf'
+    ],
+    entry_points='''
+        [console_scripts]
+        npsvg=npsv_graph.main:main
+    ''',
     packages=find_packages('src'),
     package_dir={'':'src'},
     ext_modules=[CMakeExtension('npsv/npsv')],

@@ -32,6 +32,7 @@ python3 setup.py develop
 
 and run the genotyper on the available test data:
 ```
+mkdir -p tests/results
 python3 scripts/npsv \
     --vcf2paragraph /opt/paragraph/bin/vcf2paragraph.py \
     --grmpy /opt/paragraph/bin/grmpy \
