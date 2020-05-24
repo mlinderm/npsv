@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -e -o pipefail
+
+usage()
+{
+    cat << EOF
+usage: $(basename "$0") [options] IN_VCF
+
+Convert SV VCF file to corresponding BED file with variant type in 4th column
+
+Options:
+  -h            Print this message
+EOF
+}
+
+while getopts "h" Option
+do
+    case $Option in
+        h)
+            usage
+            exit 0
+            ;;
+        ?)
+            usage
+            exit 85
+            ;;
+    esac
+done
+
+shift $((OPTIND-1))
+if [[ $# -ne 1 ]]; then
+    >&2 echo "Error: Missing positional arguments"
+    >&2 usage
+    exit 1
+fi
+
+INVCF=$1
+
+# In a correctly formatted VCF, the POS with padding base should be the same as the zero-indexed BED file coordinate
+
+gzip -dcf "$INVCF" | awk '
+    BEGIN { OFS="\t" }
+    !/^#/ {
+        match($8, /(^|;)END=([[:digit:]]+)/, end);
+        if (match($5, /^<DEL/) > 0 || match($8, /SVTYPE=DEL/) > 0) {
+            kind="DEL";
+        } else if (match($5, /^<INS/) > 0) {
+            kind="INS";
+        } else if (match($5, /^<INV/) > 0) {
+            kind="INV";
+        } else {
+            print "Unsupported alternate allele type" > "/dev/stderr";
+            exit 1;
+        }
+        print $1, $2, end[2], kind;
+    }
+'

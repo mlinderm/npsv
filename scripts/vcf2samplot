@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""
+Generate samplot commands for every variant in a VCF
+
+https://github.com/ryanlayer/samplot
+"""
+import argparse, os, sys
+import vcf
+from npsv.variant import variant_descriptor, get_ci
+from npsv.npsv_options import add_feature_options
+
+
+def make_argument_parser():
+    # These arguments mirror the relevant options in samplot
+    parser = argparse.ArgumentParser(
+        "vcf2sample",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description="Generate samplot plotting commands for every variant in a VCF",
+    )
+    parser.add_argument("vcf", metavar="VCF", type=str, help="Input VCF file")
+    parser.add_argument(
+        "-b",
+        "--bam",
+        dest="bams",
+        action="append",
+        type=str,
+        help="BAM file paths for analysis",
+        required=True,
+    )
+    parser.add_argument(
+        "-n",
+        "--names",
+        dest="names",
+        action="append",
+        type=str,
+        default=[],
+        help="Plot titles (in the same order as the BAM files)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="output",
+        type=str,
+        help="Output directory",
+        required=True,
+    )
+    parser.add_argument(
+        "--samplot", type=str, default="samplot.py", help="Path to samplot script"
+    )
+    parser.add_argument(
+        "-d",
+        dest="max_depth",
+        type=int,
+        default=100,
+        help="Max number of normal pairs to plot",
+    )
+    add_feature_options(parser)
+    return parser
+
+def prepare_ci(ci: int) -> str:
+    return str(abs(ci))
+
+def main(args):
+    vcf_reader = vcf.Reader(filename=args.vcf)
+
+    for record in vcf_reader:
+        cmd = "python3 {samplot} -b {bams} -o {output} -c {chrom} -s {start} -e {end} -t {type} -d {max_depth} --minq {minq}  --start_ci {ci_pos} --end_ci {ci_end}".format(
+            samplot=args.samplot,
+            bams=" ".join(args.bams),
+            output=os.path.join(args.output, variant_descriptor(record) + ".png"),
+            chrom=record.CHROM,
+            start=record.POS,
+            end=int(record.sv_end),
+            type=record.var_subtype,
+            max_depth=args.max_depth,
+            minq=args.min_mapq,
+            ci_pos=",".join(map(prepare_ci, get_ci(record, "CIPOS", args.default_ci))),
+            ci_end=",".join(map(prepare_ci, get_ci(record, "CIEND", args.default_ci))),
+        )
+        if len(args.names) > 0:
+            cmd += " -n {}".format(" ".join(args.names))
+        print(cmd)
+
+
+if __name__ == "__main__":
+    parser = make_argument_parser()
+    args = parser.parse_args()
+    main(args)

@@ -1,0 +1,2 @@
+id	path	depth	read length	sex
+NA12878	1_64943618_64958061_DEL_1.bam	52	100	female

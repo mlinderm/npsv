@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+import argparse
+import pandas as pd
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from npsv.genotyper import add_derived_features, VAR_COL, KLASS_COL
+
+
+def make_argument_parser():
+    parser = argparse.ArgumentParser(
+        description="Plot annotated real data as single panel",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "input", metavar="INPUT TSV", type=str, help="Input TSV file of features"
+    )
+    parser.add_argument("output", metavar="PNG", type=str, help="Output PNG file")
+    parser.add_argument("--downsample", type=int, help="Output PNG file", default=1)
+    return parser
+
+
+def main(args):
+    data = pd.read_table(args.input, dtype={"#CHROM": str, "AC": int})
+
+    # Downsample data if multiple observations per variant
+    data = (
+        data.groupby(VAR_COL + [KLASS_COL]).head(args.downsample).reset_index(drop=True)
+    )
+
+    if "AC" in data:
+        data["AC"] = pd.Categorical(data["AC"], categories=[0, 1, 2]).rename_categories(
+            ["REF", "HET", "HOM"]
+        )
+    data = add_derived_features(data)
+
+    fig, axs = plt.subplots(ncols=2)
+    fig.tight_layout()
+    colors = sns.mpl_palette("Set1", 3)
+
+    sns.scatterplot(
+        x="ALT_READ_REL",
+        y="ALT_SPAN_REL",
+        hue="AC",
+        palette=colors,
+        data=data,
+        legend=False,
+        ax=axs[0],
+    )
+    axs[0].set_xlim(0, 1)
+    axs[0].set_ylim(0, 1)
+
+    bins = range(0, 50)
+    axs[1].hist(
+        data["COVG"][data["AC"] == "REF"], color=colors[0], bins=bins, alpha=0.4
+    )
+    axs[1].hist(
+        data["COVG"][data["AC"] == "HET"], color=colors[1], bins=bins, alpha=0.4
+    )
+    axs[1].hist(
+        data["COVG"][data["AC"] == "HOM"], color=colors[2], bins=bins, alpha=0.4
+    )
+
+    plt.savefig(args.output)
+
+
+if __name__ == "__main__":
+    parser = make_argument_parser()
+    args = parser.parse_args()
+    main(args)
+

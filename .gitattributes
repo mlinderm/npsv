@@ -1,0 +1,5 @@
+# Default behavior (in case people don't have core.autocrlf set)
+* text=auto
+
+# Ensure manifest files aren't modified (since used by Docker)
+test/data/*.txt text eol=lf
