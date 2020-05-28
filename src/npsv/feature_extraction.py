@@ -1,6 +1,7 @@
 import argparse, json, logging, os, re, subprocess, sys, tempfile
 import vcf
 import pysam
+import pysam.bcftools as bcftools
 import pybedtools.bedtool as bed
 import numpy as np
 from pathlib import Path
@@ -8,9 +9,240 @@ from shlex import quote
 from .sample import Sample
 from .fragment import SpanningFragments, gather_reads
 from .variant import get_ci, variant_descriptor
-
+from npsv import npsva
 
 ZSCORE_THRESHOLD = 1.5
+
+
+class Variant(object):
+    def __init__(self, record):
+        self.record = record
+        self.ID = (
+            self.record.ID if self.record.ID is not None else variant_descriptor(record)
+        )
+
+    @property
+    def is_precise(self):
+        """Return true if SV has precise breakpoints"""
+        # PyVCF approach for is_sv_precise is not flexible enough
+        assert self.record.is_sv
+        return not (
+            self.record.INFO.get("IMPRECISE") is not None
+            or self.record.INFO.get("CIPOS") is not None
+            or self.record.INFO.get("CIEND") is not None
+        )
+
+    def get_ci(self, key: str, default_ci: int):
+        """Get SV confidence interval or default for VCF record
+        
+        Arguments:
+            key {str} -- CI INFO key
+            default_ci {int} -- Default value for CI if missing
+        
+        Returns:
+            list -- Confidence interval
+        """
+        try:
+            return [int(val) for val in self.record.INFO[key]]
+        except KeyError:
+            if self.is_precise:
+                return [0, 0]
+            else:
+                return [-default_ci, default_ci]
+
+    def to_minimal_vcf(self, args):
+        raise NotImplementedError()
+
+    def synth_fasta(self, args):
+        # TODO: Normalize ref and alt contig lengths
+        region = "{}:{}-{}".format(
+            self.record.CHROM,
+            self.record.POS - args.flank + 1,
+            int(self.record.sv_end) + args.flank,
+        )
+
+        # pylint: disable=no-member
+        with pysam.FastaFile(args.reference) as ref_fasta:
+            ref_seq = ref_fasta.fetch(region=region)
+
+        # Construct alternate alleles with bcftools consensus
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".fasta", dir=args.tempdir
+            ) as ref_allele_fasta:
+                vcf_path = self.to_minimal_vcf(args)
+                print(
+                    f">{region}", ref_seq, sep="\n", file=ref_allele_fasta, flush=True
+                )
+                # pylint: disable=no-member
+                alt_seq = bcftools.consensus("-f", ref_allele_fasta.name, vcf_path)
+        finally:
+            os.remove(vcf_path)
+            os.remove(vcf_path + ".tbi")
+
+        ref_contig = region.replace(":", "_").replace("-", "_")
+        alt_contig = ref_contig + "_alt"
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".fasta", dir=args.tempdir
+        ) as allele_fasta:
+            print(">", ref_contig, sep="", file=allele_fasta)
+            print(ref_seq, file=allele_fasta)
+            print(">", alt_contig, sep="", file=allele_fasta)
+            allele_fasta.write(alt_seq[alt_seq.find("\n") + 1 :])
+
+        return allele_fasta.name, ref_contig, alt_contig
+
+    def count_alleles_with_svviz2(self, args, input_bam):
+        with tempfile.TemporaryDirectory(dir=args.tempdir) as tempdir:
+            vcf_path = self.to_minimal_vcf(args, tempdir=tempdir)
+            command = "{exec} --ref {ref} --outdir {outdir} --no-render --variants {vcf} {bam}".format(
+                exec=quote("svviz2"),
+                ref=quote(args.reference),
+                outdir=tempdir,
+                vcf=quote(vcf_path),
+                bam=quote(input_bam),
+            )
+            subprocess.check_call(command, shell=True)
+
+            id = (
+                self.record.ID
+                or f"{self.record.CHROM}_{self.record.POS}_{self.record.sv_end}"
+            )
+            svviz2_file_names = [
+                f"{id}.{self.record.var_subtype[:3].lower()}_{self.record.CHROM}_{self.record.POS-1}",
+                f"{id}.{self.record.var_subtype[:3].lower()}_{self.record.CHROM}_{self.record.POS}",
+                f"{id}.SequenceDefinedVariant.{self.record.CHROM}_{self.record.POS-1}-{self.record.sv_end-1}",
+            ]
+            for report_prefix in svviz2_file_names:
+                report_path = os.path.join(tempdir, report_prefix + ".report.tsv")
+                if os.path.exists(report_path):
+                    break
+            else:
+                assert False, f"Couldn't find report file for {id}"
+
+            report = pd.read_csv(report_path, sep="\t")
+            report.fillna({"allele": "all"}, inplace=True)
+
+            alleles = report.groupby(["allele", "key"])
+            ref = alleles.get_group(("ref", "count")).iat[0, 3]
+            alt = alleles.get_group(("alt", "count")).iat[0, 3]
+
+            return ref, alt
+
+    @classmethod
+    def from_pyvcf(cls, record):
+        if not record.is_sv:
+            return None
+
+        kind = record.var_subtype
+        if kind.startswith("DEL"):
+            return DeletionVariant(record)
+
+
+class DeletionVariant(Variant):
+    def __init__(self, record):
+        Variant.__init__(self, record)
+
+    @property
+    def event_length(self):
+        # In correctly formatted VCF, POS is first base of event when zero-indexed, while
+        # END is 1-indexed closed end or 0-indexed half-open end
+        return int(self.record.sv_end) - self.record.POS
+
+    @property
+    def alt_length(self):
+        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
+        allele = self.record.ALT[0]
+        if isinstance(allele, vcf.model._SV):
+            # Symbolic allele
+            return 1
+        else:
+            return len(allele)
+
+    def to_minimal_vcf(self, args, tempdir=None):
+        # Create minimal VCF if needed for use with bcftools
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".vcf", delete=False, dir=(tempdir or args.tempdir)
+        ) as vcf_file:
+            print(
+                """\
+##fileformat=VCFv4.2
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description="Imprecise structural variation">
+##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
+##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End coordinate of this variant">    
+##ALT=<ID=DEL,Description="Deletion">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO""",
+                file=vcf_file,
+            )
+            record = "{chrom}\t{pos}\t{id}\t{ref}\t{alt}\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len}".format(
+                chrom=self.record.CHROM,
+                pos=self.record.POS,
+                id=self.record.ID or ".",
+                ref=self.record.REF,
+                alt=self.record.ALT[0],
+                end=self.record.sv_end,
+                len=-self.event_length,
+            )
+            print(record, file=vcf_file)
+
+        # Unfortunately tabix_index leaks file handles (in is_gzip_file function it appears)
+        subprocess.check_call(
+            "bgzip {0} && tabix {0}.gz".format(vcf_file.name), shell=True
+        )
+        return vcf_file.name + ".gz"
+
+    def count_alleles_with_npsva(
+        self, args, input_bam, input_fasta=None, ref_contig="ref", alt_contig="alt"
+    ):
+        try:
+            if input_fasta is None:
+                # Generate FASTA with ref and alt alleles formatted for use with bwa (via npsva)
+                fasta_path, ref_contig, alt_contig = self.synth_fasta(args)
+            else:
+                fasta_path = input_fasta
+
+            # Reference and alternate breakpoint spans in synthetic fasta (1-indexed)
+            length = self.event_length
+            alt_length = self.alt_length
+
+            rl_breakpoint = f"{ref_contig}:{args.flank}-{args.flank+1}"
+            al_breakpoint = f"{alt_contig}:{args.flank}-{args.flank+1}"
+
+            region = "{}:{}-{}".format(
+                self.record.CHROM,
+                self.record.POS - args.flank + 1,
+                int(self.record.sv_end) + args.flank,
+            )
+
+            count_alignment_args = {
+                "rr_region": f"{ref_contig}:{args.flank + length}-{args.flank + length + 1}",
+                "region": region,
+            }
+
+            if alt_length > 1:
+                count_alignment_args[
+                    "ar_region"
+                ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
+
+            allele_reference = npsva.AlleleReference(fasta_path)
+            counts = allele_reference.count_alignments(
+                input_bam, rl_breakpoint, al_breakpoint, **count_alignment_args
+            )
+
+            # If multiple alt breakpoints, average counts
+            r_reads = (counts["rl_reads"] + counts["rr_reads"]) / 2
+            a_reads = (counts["al_reads"] + counts["ar_reads"]) / (
+                1 if alt_length == 1 else 2
+            )
+
+            return r_reads, a_reads
+        finally:
+            # Clean up the file we created
+            if fasta_path != input_fasta:
+                os.remove(fasta_path)
 
 
 class Features(object):
@@ -109,25 +341,25 @@ def pad_vcf_alleles(args, input_vcf, output_vcf_file):
     records = [record for record in vcf_reader]
     assert len(records) == 1, "Can't pad more that one record"
     record = records[0]
-    
+
     # Get the padding base from the reference
     fasta = pysam.FastaFile(args.reference)
-    padding_base = fasta.fetch(record.CHROM, record.POS-2, record.POS-1)
+    padding_base = fasta.fetch(record.CHROM, record.POS - 2, record.POS - 1)
     fasta.close()
-    
+
     # Update the variant with a padding base
     record = vcf.model._Record(
         record.CHROM,
-        record.POS-1, 
-        record.ID, 
-        padding_base + record.REF, 
-        [vcf.model._Substitution(padding_base+str(alt)) for alt in record.ALT], 
-        record.QUAL, 
-        record.FILTER, 
+        record.POS - 1,
+        record.ID,
+        padding_base + record.REF,
+        [vcf.model._Substitution(padding_base + str(alt)) for alt in record.ALT],
+        record.QUAL,
+        record.FILTER,
         record.INFO,
         record.FORMAT,
         record._sample_indexes,
-        record.samples
+        record.samples,
     )
     record_vcf_writer = vcf.Writer(output_vcf_file, vcf_reader)
     record_vcf_writer.write_record(record)
@@ -152,7 +384,7 @@ def convert_vcf_to_graph(args, input_vcf, output_graph):
             try:
                 pad_vcf_alleles(args, input_vcf, padded_vcf_file)
                 padded_vcf_file.close()
-                
+
                 commandline = "{0} {1} -r {2} --graph-type alleles {3} {4}".format(
                     quote(sys.executable),
                     quote(args.vcf2paragraph),
@@ -164,8 +396,6 @@ def convert_vcf_to_graph(args, input_vcf, output_graph):
                 subprocess.check_call(commandline, shell=True)
             finally:
                 os.remove(padded_vcf_file.name)
-            
-        
 
 
 def align_to_graph(
@@ -373,12 +603,19 @@ def extract(
         # -------------------------------------
         # Split-read evidence
         # -------------------------------------
+        variant = Variant.from_pyvcf(record)
+        if variant is None:
+            logging.warning("Unsupported variant type for %s. Skipping", record.ID)
+            continue
+        ref_count, alt_count, *_ = variant.count_alleles_with_npsva(args, input_bam)
+        # ref_count, alt_count, *_ = variant.count_alleles_with_svviz2(args, input_bam)
+        features.read_counts = (ref_count, alt_count)
 
-        assert record.ID in graph_alignments, "No paragraph data available"
-        ref_split, alt_split = extract_paragraph_read_counts(
-            record, graph_alignments[record.ID]
-        )
-        features.read_counts = (ref_split, alt_split)
+        # assert record.ID in graph_alignments, "No paragraph data available"
+        # ref_split, alt_split = extract_paragraph_read_counts(
+        #     record, graph_alignments[record.ID]
+        # )
+        # features.read_counts = (ref_split, alt_split)
         # -------------------------------------
         # Paired-end evidence
         # -------------------------------------

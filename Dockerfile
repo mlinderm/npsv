@@ -17,6 +17,7 @@ RUN apt-get -qq update && apt-get install --no-install-recommends -yq \
   python3-pkgconfig \
   python3-setuptools \
   samtools \
+  tabix \
   unzip \
   zlib1g-dev \
   && \

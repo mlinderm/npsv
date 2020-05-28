@@ -1,7 +1,4 @@
-import os
-import re
-import sys
-import sysconfig
+import os, re, shutil, sys, sysconfig
 import platform
 import subprocess
 
@@ -14,11 +11,24 @@ from setuptools.command.build_ext import build_ext
 
 CMAKE_COMMAND = os.environ.get("CMAKE_COMMAND", "cmake")
 
+def file_replace(original_path, match, replace):
+    # Adapted from SeqLib python package.
+    backup_path = original_path + ".bak"
+    if os.path.exists(backup_path):
+        return
+
+    shutil.copyfile(original_path, backup_path)
+
+    original = open(original_path).readlines()
+    with open(original_path, "w") as replaced_file:
+        for line in original:
+            replaced_line = re.sub(match, replace, line)
+            replaced_file.write(replaced_line)
+
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=''):
         Extension.__init__(self, name, sources=[])
         self.sourcedir = os.path.abspath(sourcedir)
-
 
 class CMakeBuild(build_ext):
     def run(self):
@@ -68,6 +78,17 @@ class CMakeBuild(build_ext):
         subprocess.check_call([CMAKE_COMMAND, '--build', '.'] + build_args, cwd=self.build_temp)
         print()  # Add an empty line for cleaner output
 
+class SeqLibCMakeBuild(CMakeBuild):
+    def run(self):
+        # To link into a shared library we need to add the -fPIC flag to SeqLib dependencies
+        # before building. Adapted from SeqLib python package.
+        cflags_line_re = r"^(CFLAGS *=.*)$"
+
+        bwa_makefile_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib/seqlib", "bwa", "Makefile")
+        file_replace(bwa_makefile_path, cflags_line_re, r"\1 -fPIC -Wno-unused-result")
+
+        super().run()
+
 with open('README.md') as f:
     readme = f.read()
 
@@ -97,7 +118,7 @@ setup(
     packages=find_packages('src'),
     package_dir={'':'src'},
     ext_modules=[CMakeExtension('npsv/npsv')],
-    cmdclass=dict(build_ext=CMakeBuild),
+    cmdclass=dict(build_ext=SeqLibCMakeBuild),
     zip_safe=False,
     test_suite="tests",
     include_package_data=True,

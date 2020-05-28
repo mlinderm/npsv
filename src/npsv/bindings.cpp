@@ -5,5 +5,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(npsva, m) {
   m.doc() = "NPSV alignment tools";
-  m.def("add", &add);
+  py::class_<npsv::AlleleReference>(m, "AlleleReference")
+      .def(py::init<const std::string&>())
+      .def("count_alignments", &npsv::AlleleReference::CountAlignments);
 }
