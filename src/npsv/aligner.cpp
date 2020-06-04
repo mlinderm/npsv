@@ -65,10 +65,10 @@ py::dict AlleleReference::CountAlignments(const std::string& bam_path,
   reader.Open(bam_path);
 
   // Subset the reader by the specified regions
-  if (kwargs && kwargs.contains("regions")) {
+  if (kwargs && kwargs.contains("region")) {
     // Restrict input BAM to specific regions
     sl::GRC reader_regions;
-    for (auto& region : py::cast<py::list>(kwargs["regions"])) {
+    for (auto& region : py::cast<py::list>(kwargs["region"])) {
       reader_regions.add(
           sl::GenomicRegion(py::cast<std::string>(region), reader.Header()));
     }

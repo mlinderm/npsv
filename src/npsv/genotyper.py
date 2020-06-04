@@ -47,7 +47,13 @@ OUTPUT_COL = (
 )
 
 # Extracted and derived features
-FEATURES = Features.FEATURES + [
+FEATURES = [
+    "SVLEN",
+    "INSERT_LOWER",
+    "INSERT_UPPER",
+    "DHFC",
+    "DHBFC",
+    "DHFFC",
     "REF_READ_REL",
     "ALT_READ_REL",
     "PROB_HOMREF",
@@ -101,7 +107,7 @@ def pred_to_vcf(real_data, pred) -> str:
     """Prediction to VCF call field for sample"""
     assert real_data.shape[0] == 1, "Real data should have just one variant"
     return "{gt}:{grr},{gra}".format(
-        gt=AC_TO_GT[pred],
+        gt="./." if pred is None else AC_TO_GT[pred],
         grr=int(real_data["REF_SPLIT"].iloc[0]),
         gra=int(real_data["ALT_SPLIT"].iloc[0]),
     )
@@ -150,6 +156,9 @@ def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_CO
         real_x = real_data[features]
 
         def mahal_score(data):
+            if data.shape[0] < 2:
+                # Insufficient data for calculation
+                return float("inf")
             robust_cov = MinCovDet(assume_centered=False).fit(data)
             return robust_cov.mahalanobis(real_x)[0]
 
@@ -407,12 +416,12 @@ def genotype_vcf(
 
                 logging.debug("Classifying with %d observations", sim_group.shape[0])
                 # If in debug mode, also print Mahalanobis distance
-                if logging.getLogger().isEnabledFor(logging.DEBUG):
+                if args.dm2:
                     # Just use "absolute" features for Mahalanobis distance
                     _, _, mahal_score = single_mahalanobis(
                         sim_group, real_group, features=ABSOLUTE_FEATURES
                     )
-                    logging.debug(
+                    logging.info(
                         "%s@%s: Mahalanobis^2=%s",
                         sample,
                         variant_descriptor(record),
@@ -420,18 +429,22 @@ def genotype_vcf(
                     )
 
                 # Classify variant and generate VCF genotype entry
-                if args.classifier == "svm":
-                    pred, _ = single_svm_classify(
-                        sim_group, real_group, features=features
-                    )
-                elif args.classifier == "rf":
-                    pred, _ = single_randomforest_classify(
-                        sim_group, real_group, features=features
-                    )
-                else:
-                    raise NotImplementedError(
-                        f"Unknown classifier type: {args.classifier}"
-                    )
+                try:
+                    if args.classifier == "svm":
+                        pred, _ = single_svm_classify(
+                            sim_group, real_group, features=features
+                        )
+                    elif args.classifier == "rf":
+                        pred, _ = single_randomforest_classify(
+                            sim_group, real_group, features=features
+                        )
+                    else:
+                        raise NotImplementedError(
+                            f"Unknown classifier type: {args.classifier}"
+                        )
+                except ValueError as e:
+                    logging.error("Genotyping error for %s: %s", variant_descriptor(record), e)
+                    pred = None 
                 call = pred_to_vcf(real_group, pred)
 
             output_file.write("\t" + call)

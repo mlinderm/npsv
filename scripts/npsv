@@ -188,8 +188,6 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
         # Extract features from the random data
         random_extract_args = argparse.Namespace(**vars(args))
         setattr(random_extract_args, "header", False)
-        setattr(random_extract_args, "variant_json", None)
-        setattr(random_extract_args, "manifest", None)
         setattr(random_extract_args, "threads", 1)
         extract(
             random_extract_args,
@@ -205,29 +203,26 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
 
         simulated_ACs = [1, 2]
 
-    # Generate JSON file once for variant
-    variant_json_path = os.path.join(args.output, description + ".json")
-    convert_vcf_to_graph(args, variant_vcf_path, variant_json_path)
-
     # Extract features from synthetic data.
     synth_extract_args = argparse.Namespace(**vars(args))
     setattr(synth_extract_args, "header", False)
-    setattr(synth_extract_args, "variant_json", variant_json_path)
-    setattr(synth_extract_args, "manifest", None)
     setattr(synth_extract_args, "threads", 1)
 
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
+            logging.info(f"Simulating reads to generate {synthetic_bam_path}")
+            
             # Load BWA index into shared memory if not already loaded
-            if not check_if_bwa_index_loaded(args.reference):
-                load_bwa_index(args.reference)
+            shared_ref_arg = ""
+            if check_if_bwa_index_loaded(args.reference):
+                shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
 
             # Generate synthetic BAM file
             synth_commandline = f"synthBAM \
                 -t {quote(args.tempdir)} \
                 -R {quote(args.reference)} \
-                -S {quote(os.path.basename(args.reference))} \
+                {shared_ref_arg} \
                 -g {quote(args.genome)} \
                 -c {sample.mean_coverage / 2:0.1f} \
                 -m {sample.mean_insert_size} \
@@ -280,24 +275,15 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
     return out_file.name
 
 
-def init_pool(index_lock: multiprocessing.Lock):
-    """Initialize task pool
-    
-    Args:
-        index_lock (multiprocessing.Lock): Lock protecting BWA index loading
-    """
-    global bwa_shm_lock
-    bwa_shm_lock = index_lock
+def init_pool():
+    """Initialize task pool"""
 
 
 def main(args, parser):
     logging.basicConfig(level=args.loglevel)
 
-    bwa_index_originally_loaded = check_if_bwa_index_loaded(args.reference)
-    index_lock = multiprocessing.Lock()
-
     logging.info(f"Starting worker pool with {args.threads} processes")
-    task_pool = multiprocessing.Pool(args.threads, init_pool, initargs=(index_lock,))
+    task_pool = multiprocessing.Pool(args.threads, init_pool)
 
     # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
     if args.stats_path is not None:
@@ -388,11 +374,6 @@ def main(args, parser):
         genotype_vcf(
             genotyping_args, args.input, sim_tsv_path, real_tsv_file.name, gt_vcf_file
         )
-
-    # Clean up shared BWA index if we created it
-    if not bwa_index_originally_loaded:
-        unload_bwa_index()
-
 
 if __name__ == "__main__":
     parser = make_argument_parser()

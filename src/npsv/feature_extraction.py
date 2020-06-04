@@ -219,7 +219,7 @@ class DeletionVariant(Variant):
 
             count_alignment_args = {
                 "rr_region": f"{ref_contig}:{args.flank + length}-{args.flank + length + 1}",
-                "region": region,
+                "region": [region],
             }
 
             if alt_length > 1:
@@ -568,7 +568,7 @@ def extract(
         raise ValueError("Library distribution must be provided")
 
     # For efficiency we run paragraph on the entire VCF in one run (to amortize cost of loading the reference genome)
-    graph_alignments = run_paragraph_on_vcf(args, input_vcf, input_bam, sample)
+    # graph_alignments = run_paragraph_on_vcf(args, input_vcf, input_bam, sample)
 
     # Extract features for all SVs
     bam_reader = pysam.AlignmentFile(input_bam, mode="rb")  # pylint: disable=no-member

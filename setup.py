@@ -113,7 +113,7 @@ setup(
     ],
     entry_points='''
         [console_scripts]
-        npsvg=npsv_graph.main:main
+        npsvg=npsv.main:main
     ''',
     packages=find_packages('src'),
     package_dir={'':'src'},

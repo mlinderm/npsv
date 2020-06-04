@@ -163,4 +163,10 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         help="Only train on variants overlapping regions in this BED file",
         type=str,
     )
+    parser.add_argument(
+        "--dm2",
+        help="Compute Mahalanobis distance for all genotypes",
+        action="store_true",
+        default=False,
+    )
     return parser
