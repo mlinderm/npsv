@@ -195,7 +195,7 @@ class DeletionVariant(Variant):
         return vcf_file.name + ".gz"
 
     def count_alleles_with_npsva(
-        self, args, input_bam, input_fasta=None, ref_contig="ref", alt_contig="alt"
+        self, args, input_bam, sample: Sample, input_fasta=None, ref_contig="ref", alt_contig="alt"
     ):
         try:
             if input_fasta is None:
@@ -227,7 +227,7 @@ class DeletionVariant(Variant):
                     "ar_region"
                 ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
 
-            allele_reference = npsva.AlleleReference(fasta_path)
+            allele_reference = npsva.AlleleReference(fasta_path, sample.mean_insert_size, sample.std_insert_size)
             counts = allele_reference.count_alignments(
                 input_bam, rl_breakpoint, al_breakpoint, **count_alignment_args
             )
@@ -607,7 +607,7 @@ def extract(
         if variant is None:
             logging.warning("Unsupported variant type for %s. Skipping", record.ID)
             continue
-        ref_count, alt_count, *_ = variant.count_alleles_with_npsva(args, input_bam)
+        ref_count, alt_count, *_ = variant.count_alleles_with_npsva(args, input_bam, sample)
         # ref_count, alt_count, *_ = variant.count_alleles_with_svviz2(args, input_bam)
         features.read_counts = (ref_count, alt_count)
 

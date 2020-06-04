@@ -14,9 +14,15 @@ find_library(
     PATH_SUFFIXES "src/seqlib/src"
 )
 
+if (APPLE)
+  set(HTSLIB_FILE "libhts.dylib")
+else()
+  set(HTSLIB_FILE "libhts.so")
+endif()
+
 find_library(
     HTS_LIBRARY
-    NAMES "libhts.so"
+    NAMES "${HTSLIB_FILE}"
     PATHS ${SEQLIB_ROOT}
     PATH_SUFFIXES "src/seqlib/htslib"
     NO_DEFAULT_PATH
@@ -74,7 +80,7 @@ else()
     )
 
     set_target_properties(libhts PROPERTIES
-        "IMPORTED_LOCATION" "${binary_dir}/htslib/libhts.so"
+        "IMPORTED_LOCATION" "${binary_dir}/htslib/${HTSLIB_FILE}"
     )
 
     set_target_properties(libbwa PROPERTIES
