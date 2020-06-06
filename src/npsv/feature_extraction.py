@@ -195,7 +195,7 @@ class DeletionVariant(Variant):
         return vcf_file.name + ".gz"
 
     def count_alleles_with_npsva(
-        self, args, input_bam, sample: Sample, input_fasta=None, ref_contig="ref", alt_contig="alt"
+        self, args, input_bam, sample: Sample, input_fasta=None, ref_contig="ref", alt_contig="alt", **kwargs
     ):
         try:
             if input_fasta is None:
@@ -229,11 +229,11 @@ class DeletionVariant(Variant):
                 ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
 
             logging.debug("Counting reads for %s and %s alleles in %s", ref_contig, alt_contig, fasta_path)
-            allele_reference = npsva.AlleleReference(fasta_path, sample.mean_insert_size, sample.std_insert_size)
+            realigner = npsva.Realigner(fasta_path, sample.mean_insert_size, sample.std_insert_size)
             
             logging.debug("Counting reads at ref. breakpoints (%s, %s) and alt. breakpoints (%s, %s)", rl_breakpoint, count_alignment_args["rr_region"], al_breakpoint, count_alignment_args.get("ar_region", None))
-            counts = allele_reference.count_alignments(
-                input_bam, rl_breakpoint, al_breakpoint, **count_alignment_args
+            counts = realigner.count_alignments(
+                input_bam, rl_breakpoint, al_breakpoint, **count_alignment_args, **kwargs
             )
 
             # If multiple alt breakpoints, average counts

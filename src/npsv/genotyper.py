@@ -210,7 +210,7 @@ def single_randomforest_classify(
     x = sim_data[features]
     y = sim_data[klass]
 
-    clf = RandomForestClassifier(min_samples_leaf=5)
+    clf = RandomForestClassifier()# min_samples_leaf=5)
     clf = clf.fit(x, y)
 
     real_x = real_data[features]
