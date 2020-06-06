@@ -210,7 +210,7 @@ def single_randomforest_classify(
     x = sim_data[features]
     y = sim_data[klass]
 
-    clf = RandomForestClassifier(max_depth=3, min_samples_leaf=5)
+    clf = RandomForestClassifier(min_samples_leaf=5)
     clf = clf.fit(x, y)
 
     real_x = real_data[features]
@@ -408,13 +408,14 @@ def genotype_vcf(
                 # Remove outliers from training data
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
+                    logging.debug("Classifying with %d observations before outlier filtering", sim_group.shape[0])
                     sim_group = (
                         sim_group.groupby(KLASS_COL)
                         .apply(filter_by_zscore, features, remove_z)
                         .reset_index(drop=True)
                     )
 
-                logging.debug("Classifying with %d observations", sim_group.shape[0])
+                logging.debug("Classifying with %d observations after outlier filtering", sim_group.shape[0])
                 # If in debug mode, also print Mahalanobis distance
                 if args.dm2:
                     # Just use "absolute" features for Mahalanobis distance

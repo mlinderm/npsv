@@ -40,15 +40,8 @@ def main():
         default=tempfile.gettempdir(),
     )
     parser.add_argument("--threads", help="Number of threads", type=int, default=1)
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        help="Verbose logging",
-        action="store_const",
-        dest="loglevel",
-        const=logging.INFO,
-    )
-    parser.add_argument(
+    logging_options = parser.add_mutually_exclusive_group()
+    logging_options.add_argument(
         "-d",
         "--debug",
         help="Debug logging",
@@ -56,6 +49,14 @@ def main():
         dest="loglevel",
         const=logging.DEBUG,
         default=logging.WARNING,
+    )
+    logging_options.add_argument(
+        "-v",
+        "--verbose",
+        help="Verbose logging",
+        action="store_const",
+        dest="loglevel",
+        const=logging.INFO,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Sub-command help")

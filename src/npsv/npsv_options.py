@@ -41,6 +41,9 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         argparse.ArgumentParser: Parser passed as argument
     """
     parser.add_argument(
+        "--flank", help="Flank size for simulation region", type=int, default=3000
+    )
+    parser.add_argument(
         "--ci",
         dest="default_ci",
         default=10,

@@ -49,6 +49,7 @@ class AlignmentPair {
                 const InsertSizeDistribution&);
 
   bool Valid() const { return first_ && second_; }
+  score_type Score() const { return score_; }
   bool Concordant() const;
   int32_t InsertSize() const;
 
@@ -65,29 +66,33 @@ class AlignmentPair {
   score_type score_;
 
   friend class Fragment;
+  friend class AlleleReference;
 };
 
 class Fragment {
  public:
   typedef AlignmentPair::score_type score_type;
 
-  Fragment(const sl::BamRecord& read) : first_(read) {}
-
-  void SetSecond(const sl::BamRecord& read);
+  Fragment(const sl::BamRecord& read) : first_(read), total_log_prob_(std::numeric_limits<score_type>::lowest()) {}
 
   bool HasBestPair() const { return best_pair_.Valid(); }
-  void SetBestPair(const InsertSizeDistribution&);
+  score_type BestAlignmentScore() const { return best_pair_.score_; }
+  
   bool BestAlignmentContains(const sl::GenomicRegion& region) const {
     return best_pair_.ReadsContain(region);
   };
-  score_type BestAlignmentScore() const { return best_pair_.score_; }
-
+  
  private:
+  void SetSecond(const sl::BamRecord& read);
+  void SetBestPair(const InsertSizeDistribution&);
+
   sl::BamRecord first_;
   sl::BamRecordVector first_alignments_;
   sl::BamRecord second_;
   sl::BamRecordVector second_alignments_;
+  
   AlignmentPair best_pair_;
+  score_type total_log_prob_; // log10(Pr(read))
 
   friend class AlleleAlignments;
   friend class AlleleReference;
@@ -104,17 +109,19 @@ class AlleleAlignments {
   void Initialize(const sl::UnalignedSequence& sequence);
 
   sl::BamHeader Header() const { return bwa_.HeaderFromIndex(); }
+  void Align(const sl::BamRecord& read,
+             const InsertSizeDistribution& insert_size_dist);
 
   iterator begin() { return fragments_.begin(); }
   iterator end() { return fragments_.end(); }
 
-  void Clear() { fragments_.clear(); }
-  size_type Size() const { return fragments_.size(); }
-
-  void Align(const sl::BamRecord& read,
-             const InsertSizeDistribution& insert_size_dist);
+  void clear() { fragments_.clear(); }
+  size_type size() const { return fragments_.size(); }
 
  private:
+  void ScoreAlignments(const sl::BamRecord&, sl::BamRecordVector&);
+
+  sl::UnalignedSequence sequence_;
   sl::BWAWrapper bwa_;
   fragments_type fragments_;
 };

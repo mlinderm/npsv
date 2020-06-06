@@ -54,15 +54,8 @@ def make_argument_parser():
         default=tempfile.gettempdir(),
     )
     parser.add_argument("--threads", help="Number of threads", type=int, default=1)
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        help="Verbose logging",
-        action="store_const",
-        dest="loglevel",
-        const=logging.INFO,
-    )
-    parser.add_argument(
+    logging_options = parser.add_mutually_exclusive_group()
+    logging_options.add_argument(
         "-d",
         "--debug",
         help="Debug logging",
@@ -71,6 +64,15 @@ def make_argument_parser():
         const=logging.DEBUG,
         default=logging.WARNING,
     )
+    logging_options.add_argument(
+        "-v",
+        "--verbose",
+        help="Verbose logging",
+        action="store_const",
+        dest="loglevel",
+        const=logging.INFO,
+    )
+    
 
     # Synthesizer options
     synth_options = parser.add_argument_group()
@@ -92,9 +94,6 @@ def make_argument_parser():
     )
     synth_options.add_argument(
         "--profile", help="ART profile", type=str, default="HS25"
-    )
-    synth_options.add_argument(
-        "--flank", help="Flank size for simulation region", type=int, default=3000
     )
 
     # Options used by "sub tools"
@@ -159,6 +158,7 @@ def unload_bwa_index():
 
 
 def simulate_deletion(args, sample, record, variant_vcf_path, description):
+    logging.info(f"Extracting features for {description}")
     out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
 
     # In correctly formatted VCF, POS is first base of event when zero-indexed, while
@@ -280,6 +280,7 @@ def init_pool():
 
 
 def main(args, parser):
+    print(args.loglevel)
     logging.basicConfig(level=args.loglevel)
 
     logging.info(f"Starting worker pool with {args.threads} processes")
@@ -317,8 +318,6 @@ def main(args, parser):
             continue
 
         description = variant_descriptor(record)
-        logging.info(f"Extracting features for {description}")
-
         if record.ID is None:
             # Update ID to be more meaningful
             record.ID = description
