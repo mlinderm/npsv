@@ -1,12 +1,12 @@
 #include "aligner.hpp"
 
 #include <iostream>
+#include <limits>
 #include <queue>
+#include <sstream>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
-#include <limits>
-#include <sstream>
 
 #include "SeqLib/BWAWrapper.h"
 #include "SeqLib/BamReader.h"
@@ -44,34 +44,29 @@ double LogSumPow(double acc, double prob) {
     return acc + log10(1 + pow(10., diff));
 }
 
- double PhredToProb(double phred) {
-    return pow(10.0, phred / -10.0);
-  }
+double PhredToProb(double phred) { return pow(10.0, phred / -10.0); }
 
-  double PhredToLogProb(double quality, double penalty=0.) {
-    return (-quality / 10.) + penalty;
-  }
+double PhredToLogProb(double quality, double penalty = 0.) {
+  return (-quality / 10.) + penalty;
+}
 
-  double GetDoubleTag(const sl::BamRecord& read, const std::string& tag) {
-    uint8_t* p = bam_aux_get(read.raw(), tag.data());
-    if (!p)
-      throw std::invalid_argument("Tag does not exist");
-    double result = bam_aux2f(p);
-    int type = *p++;
-    if (type != 'd')
-      throw std::invalid_argument("Tag is not of double type");
+double GetDoubleTag(const sl::BamRecord& read, const std::string& tag) {
+  uint8_t* p = bam_aux_get(read.raw(), tag.data());
+  if (!p) throw std::invalid_argument("Tag does not exist");
+  double result = bam_aux2f(p);
+  int type = *p++;
+  if (type != 'd') throw std::invalid_argument("Tag is not of double type");
 
-    return result;
-  } 
+  return result;
+}
 }  // namespace
-
 
 double InsertSizeDistribution::operator()(int insert_size) const {
   auto entry = density_.find(insert_size);
   if (entry != density_.end()) {
     return entry->second;
   } else {
-    // https://stackoverflow.com/a/10848293 
+    // https://stackoverflow.com/a/10848293
     static const double inv_sqrt_2pi = 0.3989422804014327;
     double a = (insert_size - mean_) / std_;
     return inv_sqrt_2pi / std_ * std::exp(-0.5 * a * a);
@@ -79,23 +74,22 @@ double InsertSizeDistribution::operator()(int insert_size) const {
 }
 
 double LogProbToPhredQual(double prob, double max_qual) {
-    return std::min(log10(1.-pow(10.0, prob)) * -10.0, max_qual);
-  }
+  return std::min(log10(1. - pow(10.0, prob)) * -10.0, max_qual);
+}
 
 AlignmentPair::AlignmentPair(const sl::BamRecord& first,
                              const sl::BamRecord& second,
                              const InsertSizeDistribution& insert_size_dist)
     : first_(&first), second_(&second), score_(0.) {
-  
   if (second_->Position() <= first_->Position()) {
     std::swap(first_, second_);
   }
 
   // Scoring algorithm adapted from svviz2:
   // https://github.com/nspies/svviz2/blob/44f7bfc75bf84c1db4563d9fd30bf20967d1c825/src/svviz2/io/readstatistics.py
-  score_ += GetDoubleTag(*first_, "as"); 
+  score_ += GetDoubleTag(*first_, "as");
   score_ += GetDoubleTag(*second_, "as");
-  
+
   if (!Concordant()) {
     score_ -= 10.;
     return;
@@ -144,7 +138,7 @@ void Fragment::SetBestPair(const InsertSizeDistribution& insert_size_dist) {
       }
       total_log_prob_ = LogSumPow(total_log_prob_, pair.Score());
     }
-  } 
+  }
 }
 
 void AlleleAlignments::Initialize(const sl::UnalignedSequence& sequence) {
@@ -167,61 +161,70 @@ void AlleleAlignments::Align(const sl::BamRecord& read,
   } else {
     // An existing fragment
     fragment.SetSecond(read);
-    
+
     bwa_.AlignSequence(read.Sequence(), read.Qname(),
                        fragment.second_alignments_, false, 0.9, 10);
     ScoreAlignments(fragment.second_, fragment.second_alignments_);
-    
-    fragment.SetBestPair(insert_size_dist);   
+
+    fragment.SetBestPair(insert_size_dist);
   }
 }
 
 namespace {
-  // Penalties adapted from svviz2
-  const double kGapOpen = -1.;
-  const double kGapExtend = -1.;
+// Penalties adapted from svviz2
+const double kGapOpen = -1.;
+const double kGapExtend = -1.;
 
-  void AddDoubleTag(sl::BamRecord& read, const std::string& tag, double val) {
-    bam_aux_append(read.raw(), tag.data(), 'd', sizeof(double), (uint8_t*)&val);
-  }
-
-  // svviz2 rescales all base qualities
-  double RescaleQuality(char quality, double scale=0.25) {
-    return scale * static_cast<double>(quality);
-  }
+void AddDoubleTag(sl::BamRecord& read, const std::string& tag, double val) {
+  bam_aux_append(read.raw(), tag.data(), 'd', sizeof(double), (uint8_t*)&val);
 }
 
-AlleleAlignments::score_type AlleleAlignments::ScoreAlignment(const std::string& read_sequence, const std::string& base_qualities, const std::string& ref_sequence, const sl::BamRecord& alignment) {
+// svviz2 rescales all base qualities
+double RescaleQuality(char quality, double scale = 0.25) {
+  return scale * static_cast<double>(quality);
+}
+}  // namespace
+
+AlleleAlignments::score_type AlleleAlignments::ScoreAlignment(
+    const std::string& read_sequence, const std::string& base_qualities,
+    const std::string& ref_sequence, const sl::BamRecord& alignment) {
   int entry_read_pos = 0;
   int entry_ref_pos = alignment.PositionWithSClips();
-  score_type log_prob = 0; // log10(P(data|alignment))
+  score_type log_prob = 0;  // log10(P(data|alignment))
 
   sl::Cigar cigar = alignment.GetCigar();
-  for (const auto & cigar_entry : cigar) {
+  for (const auto& cigar_entry : cigar) {
     int entry_read_end = entry_read_pos + cigar_entry.Length();
-    switch (cigar_entry.Type()) { // MIDNSHPX
+    switch (cigar_entry.Type()) {  // MIDNSHPX
       default:
         throw std::invalid_argument("CIGAR entry not implemented");
       case 'S':
-        // TODO: Don't penalize shorter soft-clip regions (reduce penalty for < 10 bases)
-        for (; entry_read_pos < entry_read_end; entry_read_pos++, entry_ref_pos++) {
-          log_prob += PhredToLogProb(RescaleQuality(base_qualities[entry_read_pos]));
+        // TODO: Don't penalize shorter soft-clip regions (reduce penalty for <
+        // 10 bases)
+        for (; entry_read_pos < entry_read_end;
+             entry_read_pos++, entry_ref_pos++) {
+          log_prob +=
+              PhredToLogProb(RescaleQuality(base_qualities[entry_read_pos]));
         }
         break;
       case 'M':
-        for (; entry_read_pos < entry_read_end; entry_read_pos++, entry_ref_pos++) {
+        for (; entry_read_pos < entry_read_end;
+             entry_read_pos++, entry_ref_pos++) {
           if (read_sequence[entry_read_pos] == ref_sequence[entry_ref_pos]) {
             auto quality = RescaleQuality(base_qualities[entry_read_pos]);
             log_prob += log10(1. - PhredToProb(quality));
           } else {
-            log_prob += PhredToLogProb(RescaleQuality(base_qualities[entry_read_pos]));
+            log_prob +=
+                PhredToLogProb(RescaleQuality(base_qualities[entry_read_pos]));
           }
         }
         break;
       case 'I':
-        log_prob += PhredToLogProb(RescaleQuality(base_qualities[entry_read_pos++]), kGapOpen);
-        for (;entry_read_pos < entry_read_end; entry_read_pos++) {
-          log_prob += PhredToLogProb(RescaleQuality(base_qualities[entry_read_pos]), kGapExtend);
+        log_prob += PhredToLogProb(
+            RescaleQuality(base_qualities[entry_read_pos++]), kGapOpen);
+        for (; entry_read_pos < entry_read_end; entry_read_pos++) {
+          log_prob += PhredToLogProb(
+              RescaleQuality(base_qualities[entry_read_pos]), kGapExtend);
         }
         break;
       case 'D':
@@ -230,25 +233,33 @@ AlleleAlignments::score_type AlleleAlignments::ScoreAlignment(const std::string&
           log_prob += (cigar_entry.Length() - 1) * kGapExtend;
         entry_ref_pos += cigar_entry.Length();
         break;
-
     }
   }
 
   return log_prob;
 }
 
-void AlleleAlignments::ScoreAlignments(const sl::BamRecord& read, sl::BamRecordVector& alignments) {
+void AlleleAlignments::ScoreAlignments(const sl::BamRecord& read,
+                                       sl::BamRecordVector& alignments) {
   const std::string read_sequence(read.Sequence());
   const std::string base_qualities(read.Qualities(0));
   const std::string& ref_sequence(sequence_.Seq);
 
-  for (auto & alignment : alignments) {    
-    auto log_prob = ScoreAlignment(read_sequence, base_qualities, ref_sequence, alignment);
+  for (auto& alignment : alignments) {
+    auto log_prob =
+        ScoreAlignment(read_sequence, base_qualities, ref_sequence, alignment);
     AddDoubleTag(alignment, "as", log_prob);
   }
 }
 
-Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint, OverlapAllele allele, score_type total_log_prob, bool count_straddle) : fragment_(&fragment), breakpoint_(&breakpoint), allele_(allele), kind_(OverlapKind::None), quality_score_(0) {
+Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint,
+                 OverlapAllele allele, score_type total_log_prob,
+                 bool count_straddle)
+    : fragment_(&fragment),
+      breakpoint_(&breakpoint),
+      allele_(allele),
+      kind_(OverlapKind::None),
+      quality_score_(0) {
   const AlignmentPair& best_pair(fragment_->BestPair());
   if (!best_pair.Valid()) {
     // Use default alignment of "None"
@@ -258,16 +269,23 @@ Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint, 
   // TODO: Add minimum overlap?
   auto first_region = best_pair.first_->AsGenomicRegion();
   auto second_region = best_pair.second_->AsGenomicRegion();
-  if (first_region.GetOverlap(*breakpoint_) == GenomicRegionOverlap::ContainsArg || second_region.GetOverlap(*breakpoint_) == GenomicRegionOverlap::ContainsArg) {
+  if (first_region.GetOverlap(*breakpoint_) ==
+          GenomicRegionOverlap::ContainsArg ||
+      second_region.GetOverlap(*breakpoint_) ==
+          GenomicRegionOverlap::ContainsArg) {
     kind_ = OverlapKind::ReadContains;
-  } else if (count_straddle && first_region.chr == breakpoint_->chr && second_region.chr == breakpoint_->chr) {
+  } else if (count_straddle && first_region.chr == breakpoint_->chr &&
+             second_region.chr == breakpoint_->chr) {
     // Read could straddle...
-    sl::GenomicRegion fragment_region(first_region.chr, std::min(first_region.pos1, second_region.pos1), std::max(first_region.pos1, second_region.pos2));
-    if (fragment_region.GetOverlap(*breakpoint_) == GenomicRegionOverlap::ContainsArg) {
+    sl::GenomicRegion fragment_region(
+        first_region.chr, std::min(first_region.pos1, second_region.pos1),
+        std::max(first_region.pos1, second_region.pos2));
+    if (fragment_region.GetOverlap(*breakpoint_) ==
+        GenomicRegionOverlap::ContainsArg) {
       kind_ = OverlapKind::FragmentContains;
     }
   }
-  
+
   if (kind_ != OverlapKind::None) {
     quality_score_ = LogProbToPhredQual(best_pair.Score() - total_log_prob, 40);
   }
@@ -275,7 +293,8 @@ Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint, 
 
 std::string Overlap::FormattedBreakpoint() const {
   std::stringstream ss;
-  ss << (IsRef() ? "ref:" : "alt:") << breakpoint_->pos1 << "-" << breakpoint_->pos2;
+  ss << (IsRef() ? "ref:" : "alt:") << breakpoint_->pos1 << "-"
+     << breakpoint_->pos2;
   return ss.str();
 }
 
@@ -283,19 +302,22 @@ void Overlap::PushTaggedReads(sl::BamRecordVector& reads) const {
   std::string ov_value(FormattedBreakpoint());
   reads.push_back(fragment_->first_);
   reads.back().AddZTag("ov", ov_value);
-  AddDoubleTag(reads.back(), "as", GetDoubleTag(*(fragment_->BestPair().first_), "as"));
+  AddDoubleTag(reads.back(), "as",
+               GetDoubleTag(*(fragment_->BestPair().first_), "as"));
   AddDoubleTag(reads.back(), "fs", quality_score_);
   reads.push_back(fragment_->second_);
   reads.back().AddZTag("ov", ov_value);
   AddDoubleTag(reads.back(), "fs", quality_score_);
-  AddDoubleTag(reads.back(), "as", GetDoubleTag(*(fragment_->BestPair().second_), "as"));
+  AddDoubleTag(reads.back(), "as",
+               GetDoubleTag(*(fragment_->BestPair().second_), "as"));
 }
 
-Realigner::Realigner(const std::string& fasta_path,
-                                 double insert_size_mean,
-                                 double insert_size_std,
-                                 const InsertSizeDistribution::density_type& insert_size_density)
-    : insert_size_dist_(insert_size_mean, insert_size_std, insert_size_density) {
+Realigner::Realigner(
+    const std::string& fasta_path, double insert_size_mean,
+    double insert_size_std,
+    const InsertSizeDistribution::density_type& insert_size_density)
+    : insert_size_dist_(insert_size_mean, insert_size_std,
+                        insert_size_density) {
   pyassert(!ref_.IsInitialized() && !alt_.IsInitialized(),
            "BWA wrapper should start out uninitialized");
 
@@ -313,7 +335,7 @@ Realigner::Realigner(const std::string& fasta_path,
   }
 }
 
-void Realigner::Clear() { 
+void Realigner::Clear() {
   ref_.clear();
   alt_.clear();
 }
@@ -324,20 +346,20 @@ void Realigner::Realign(const sl::BamRecord& read) {
 }
 
 py::dict Realigner::CountAlignments(const std::string& bam_path,
-                                          const std::string& rl_region,
-                                          const std::string& al_region,
-                                          py::kwargs kwargs) {
+                                    const std::string& rl_region,
+                                    const std::string& al_region,
+                                    py::kwargs kwargs) {
   // Get optional arguments passed from Python
   Fragment::score_type min_score_delta = 1.;
   if (kwargs && kwargs.contains("min_score_delta")) {
     min_score_delta = py::cast<Fragment::score_type>(kwargs["min_score_delta"]);
   }
-  
+
   bool count_straddle = true;
   if (kwargs && kwargs.contains("count_straddle")) {
     count_straddle = py::cast<Fragment::score_type>(kwargs["count_straddle"]);
   }
-  
+
   // Clear any previous aligned fragments
   Clear();
 
@@ -365,7 +387,8 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
   sl::BamWriter overlap_writer(sl::BAM);
   sl::BamRecordVector overlap_reads;
-  if (kwargs && kwargs.contains("overlap_bam") && !kwargs["overlap_bam"].is_none()) {
+  if (kwargs && kwargs.contains("overlap_bam") &&
+      !kwargs["overlap_bam"].is_none()) {
     overlap_writer.SetHeader(reader.Header());
     overlap_writer.Open(py::cast<std::string>(kwargs["overlap_bam"]));
     overlap_writer.WriteHeader();
@@ -384,9 +407,10 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
   sl::BamRecord read;
   while (reader.GetNextRecord(read)) {
-    if (read.DuplicateFlag() || read.SecondaryFlag() || read.SupplementaryFlag())
-      continue; // Skip duplicate or secondary/supplemental alignments
-    
+    if (read.DuplicateFlag() || read.SecondaryFlag() ||
+        read.SupplementaryFlag())
+      continue;  // Skip duplicate or secondary/supplemental alignments
+
     // Realign read to ref. and/or alt. alleles
     Realign(read);
   }
@@ -401,49 +425,32 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
     auto& ref_fragment = ref_iter->second;
     auto& alt_fragment = alt_iter->second;
 
-    // Compute total probability across all alignments for this fragment (to compute posterior)
-    Fragment::score_type total_log_prob = LogSumPow(ref_fragment.total_log_prob_, alt_fragment.total_log_prob_);
-    
-    // Determine overlap and scores for all breakpoints
-    Overlap rl_ov(ref_fragment, rl, Overlap::OverlapAllele::RefLeft, total_log_prob);
-    Overlap al_ov(alt_fragment, al, Overlap::OverlapAllele::AltLeft, total_log_prob);
+    // Compute total probability across all alignments for this fragment (to
+    // compute posterior)
+    Fragment::score_type total_log_prob =
+        LogSumPow(ref_fragment.total_log_prob_, alt_fragment.total_log_prob_);
 
-    Overlap rr_ov, ar_ov; // Optional breakpoints
+    // Determine overlap and scores for all breakpoints
+    Overlap rl_ov(ref_fragment, rl, Overlap::OverlapAllele::RefLeft,
+                  total_log_prob);
+    Overlap al_ov(alt_fragment, al, Overlap::OverlapAllele::AltLeft,
+                  total_log_prob);
+
+    Overlap rr_ov, ar_ov;  // Optional breakpoints
     if (!rr.IsEmpty()) {
-      rr_ov = { ref_fragment, rr, Overlap::OverlapAllele::RefRight, total_log_prob };
+      rr_ov = {ref_fragment, rr, Overlap::OverlapAllele::RefRight,
+               total_log_prob};
     }
     if (!ar.IsEmpty()) {
-      ar_ov = { alt_fragment, ar, Overlap::OverlapAllele::AltRight, total_log_prob };
-    }  
+      ar_ov = {alt_fragment, ar, Overlap::OverlapAllele::AltRight,
+               total_log_prob};
+    }
 
-    bool any_overlap = rl_ov.HasOverlap() || al_ov.HasOverlap() || rr_ov.HasOverlap() || ar_ov.HasOverlap();
+    bool any_overlap = rl_ov.HasOverlap() || al_ov.HasOverlap() ||
+                       rr_ov.HasOverlap() || ar_ov.HasOverlap();
     if (any_overlap) {
       Overlap max_ref = std::max(rl_ov, rr_ov);
       Overlap max_alt = std::max(al_ov, ar_ov);
-
-      // if (ref_iter->first == "HISEQ1:18:H8VC6ADXX:1:1108:5833:94082") {
-      //   {
-      //     sl::BamWriter writer(sl::SAM);
-      //     writer.SetHeader(ref_.Header());
-      //     writer.Open("/dev/stderr");
-      //     writer.WriteRecord(*max_ref.fragment_->BestPair().first_);
-      //     writer.WriteRecord(*max_ref.fragment_->BestPair().second_);
-      //     writer.Close();
-      //   }
-      //   std::cerr << max_ref.fragment_->BestPair().score_ << " " << max_ref.QualityScore() << " " << total_log_prob << std::endl;
-      //   {
-      //     sl::BamWriter writer(sl::SAM);
-      //     writer.SetHeader(alt_.Header());
-      //     writer.Open("/dev/stderr");
-      //     writer.WriteRecord(*max_alt.fragment_->BestPair().first_);
-      //     writer.WriteRecord(*max_alt.fragment_->BestPair().second_);
-      //     writer.Close();
-      //   }
-      //   std::cerr << max_alt.fragment_->BestPair().score_ << " " << max_alt.QualityScore() << " " << total_log_prob << std::endl;
-      // //std::cerr << max_ref.fragment_->BestPair() << std::endl;
-      // //std::cerr << max_alt.fragment_->BestPair() << std::endl;
-      // }
-      
 
       auto delta = max_alt.QualityScore() - max_ref.QualityScore();
       if (max_alt.HasOverlap() && delta > min_score_delta) {
@@ -452,21 +459,19 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
         if (ar_ov.QualityScore() - max_ref.QualityScore() > min_score_delta)
           ar_reads += 1;
 
-        if (overlap_writer.IsOpen())
-          max_alt.PushTaggedReads(overlap_reads);
+        if (overlap_writer.IsOpen()) max_alt.PushTaggedReads(overlap_reads);
       } else if (max_ref.HasOverlap() && delta < -min_score_delta) {
         if (rl_ov.QualityScore() - max_alt.QualityScore() > min_score_delta)
           rl_reads += 1;
         if (rr_ov.QualityScore() - max_alt.QualityScore() > min_score_delta)
           rr_reads += 1;
 
-        if (overlap_writer.IsOpen())
-          max_ref.PushTaggedReads(overlap_reads);
+        if (overlap_writer.IsOpen()) max_ref.PushTaggedReads(overlap_reads);
       } else {
         // Everything else is an ambiguous overlap
         // TODO: Write out ambiguous alignments to debugging BAM file
         amb_reads += 1;
-      }   
+      }
     }
 
     ref_iter++;
@@ -475,11 +480,11 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
   // Close overlap BAM writer if open (writing out index file)
   if (overlap_writer.IsOpen()) {
-    std::sort(overlap_reads.begin(), overlap_reads.end(), sl::BamRecordSort::ByReadPosition());
-    for (const auto & read : overlap_reads)
-      overlap_writer.WriteRecord(read);
+    std::sort(overlap_reads.begin(), overlap_reads.end(),
+              sl::BamRecordSort::ByReadPosition());
+    for (const auto& read : overlap_reads) overlap_writer.WriteRecord(read);
     overlap_writer.Close();
-    overlap_writer.BuildIndex();   
+    overlap_writer.BuildIndex();
   }
 
   auto results = py::dict();
@@ -493,22 +498,23 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
 namespace test {
 
-  std::vector<AlleleAlignments::score_type> TestScoreAlignment(const std::string& ref_sequence, const std::string& alignment_path) {
-    // Open the input BAM/SAM/CRAM and any output files
-    sl::BamReader reader;
-    reader.Open(alignment_path);
-    std::vector<AlleleAlignments::score_type> scores;
+std::vector<AlleleAlignments::score_type> TestScoreAlignment(
+    const std::string& ref_sequence, const std::string& alignment_path) {
+  // Open the input BAM/SAM/CRAM and any output files
+  sl::BamReader reader;
+  reader.Open(alignment_path);
+  std::vector<AlleleAlignments::score_type> scores;
 
-    sl::BamRecord read;
-    while (reader.GetNextRecord(read)) {
-      auto log_prob = AlleleAlignments::ScoreAlignment(read.Sequence(), read.Qualities(0), ref_sequence, read);
-      scores.push_back(log_prob);
-    }
-
-    return scores;
+  sl::BamRecord read;
+  while (reader.GetNextRecord(read)) {
+    auto log_prob = AlleleAlignments::ScoreAlignment(
+        read.Sequence(), read.Qualities(0), ref_sequence, read);
+    scores.push_back(log_prob);
   }
-  
+
+  return scores;
 }
 
+}  // namespace test
 
 }  // namespace npsv

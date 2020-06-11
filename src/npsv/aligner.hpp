@@ -21,13 +21,15 @@ enum GenomicRegionOverlap {
 
 enum SAMFlags { SecondaryAlignment = 256, SupplementaryAlignment = 2048 };
 
-double LogProbToPhredQual(double prob, double max_qual=std::numeric_limits<double>::max());
+double LogProbToPhredQual(double prob,
+                          double max_qual = std::numeric_limits<double>::max());
 
 class InsertSizeDistribution {
  public:
   typedef std::map<int, double> density_type;
 
-  InsertSizeDistribution(double mean, double std, const density_type& density) : mean_(mean), std_(std), density_(density) {}
+  InsertSizeDistribution(double mean, double std, const density_type& density)
+      : mean_(mean), std_(std), density_(density) {}
 
   double operator()(int insert_size) const;
 
@@ -73,12 +75,14 @@ class Fragment {
  public:
   typedef AlignmentPair::score_type score_type;
 
-  Fragment(const sl::BamRecord& read) : first_(read), total_log_prob_(std::numeric_limits<score_type>::lowest()) {}
+  Fragment(const sl::BamRecord& read)
+      : first_(read),
+        total_log_prob_(std::numeric_limits<score_type>::lowest()) {}
 
   bool HasBestPair() const { return best_pair_.Valid(); }
   const AlignmentPair& BestPair() const { return best_pair_; }
   score_type BestPairScore() const { return best_pair_.score_; }
-    
+
  private:
   void SetSecond(const sl::BamRecord& read);
   void SetBestPair(const InsertSizeDistribution&);
@@ -87,9 +91,9 @@ class Fragment {
   sl::BamRecordVector first_alignments_;
   sl::BamRecord second_;
   sl::BamRecordVector second_alignments_;
-  
+
   AlignmentPair best_pair_;
-  score_type total_log_prob_; // log10(Pr(read))
+  score_type total_log_prob_;  // log10(Pr(read))
 
   friend class AlleleAlignments;
   friend class Overlap;
@@ -108,12 +112,15 @@ class AlleleAlignments {
   void Initialize(const sl::UnalignedSequence& sequence);
 
   sl::BamHeader Header() const { return bwa_.HeaderFromIndex(); }
-  
+
   void Align(const sl::BamRecord& read,
              const InsertSizeDistribution& insert_size_dist);
-  
-  static score_type ScoreAlignment(const std::string& read_sequence, const std::string& base_qualities, const std::string& ref_sequence, const sl::BamRecord& alignment);
-  
+
+  static score_type ScoreAlignment(const std::string& read_sequence,
+                                   const std::string& base_qualities,
+                                   const std::string& ref_sequence,
+                                   const sl::BamRecord& alignment);
+
   void ScoreAlignments(const sl::BamRecord&, sl::BamRecordVector&);
 
   // Access realigned fragments
@@ -130,54 +137,77 @@ class AlleleAlignments {
 };
 
 class Overlap {
-  public:
-    enum class OverlapAllele {
-      None = 0, 
-      RefLeft = 1,
-      RefRight = 2,
-      AltLeft = 4,
-      AltRight = 8,
-      Ref = 3,
-      Alt = 12,
-      Left = 5,
-      Right = 10
-    };
+ public:
+  enum class OverlapAllele {
+    None = 0,
+    RefLeft = 1,
+    RefRight = 2,
+    AltLeft = 4,
+    AltRight = 8,
+    Ref = 3,
+    Alt = 12,
+    Left = 5,
+    Right = 10
+  };
 
-    enum class OverlapKind {
-      None = 0,
-      FragmentContains = 1,
-      ReadContains = 3,
-    };
+  enum class OverlapKind {
+    None = 0,
+    FragmentContains = 1,
+    ReadContains = 3,
+  };
 
-    typedef Fragment::score_type score_type;
+  typedef Fragment::score_type score_type;
 
-    Overlap() : fragment_(nullptr), breakpoint_(nullptr), allele_(OverlapAllele::None), kind_(OverlapKind::None), quality_score_(0) {}
-    Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint, OverlapAllele allele, score_type total_log_prob, bool count_straddle=true);
+  Overlap()
+      : fragment_(nullptr),
+        breakpoint_(nullptr),
+        allele_(OverlapAllele::None),
+        kind_(OverlapKind::None),
+        quality_score_(0) {}
+  Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint,
+          OverlapAllele allele, score_type total_log_prob,
+          bool count_straddle = true);
 
-    bool operator()() const { return fragment_ && breakpoint_; }
+  bool operator()() const { return fragment_ && breakpoint_; }
 
-    bool IsRef() const { return static_cast<unsigned int>(allele_) & static_cast<unsigned int>(OverlapAllele::Ref); }
-    bool IsAlt() const { return static_cast<unsigned int>(allele_) & static_cast<unsigned int>(OverlapAllele::Alt); }
-    
-    bool IsLeft() const { return static_cast<unsigned int>(allele_) & static_cast<unsigned int>(OverlapAllele::Left); }
-    bool IsRight() const { return static_cast<unsigned int>(allele_) & static_cast<unsigned int>(OverlapAllele::Right); }
+  bool IsRef() const {
+    return static_cast<unsigned int>(allele_) &
+           static_cast<unsigned int>(OverlapAllele::Ref);
+  }
+  bool IsAlt() const {
+    return static_cast<unsigned int>(allele_) &
+           static_cast<unsigned int>(OverlapAllele::Alt);
+  }
 
-    bool HasOverlap() const { return kind_ != OverlapKind::None; }
+  bool IsLeft() const {
+    return static_cast<unsigned int>(allele_) &
+           static_cast<unsigned int>(OverlapAllele::Left);
+  }
+  bool IsRight() const {
+    return static_cast<unsigned int>(allele_) &
+           static_cast<unsigned int>(OverlapAllele::Right);
+  }
 
-    std::string FormattedBreakpoint() const;
-    score_type QualityScore() const { return quality_score_; }
+  bool HasOverlap() const { return kind_ != OverlapKind::None; }
 
-    void PushTaggedReads(sl::BamRecordVector&) const;
+  std::string FormattedBreakpoint() const;
+  score_type QualityScore() const { return quality_score_; }
 
-    bool operator<(const Overlap& rhs) const { return quality_score_ < rhs.quality_score_; }
-    bool operator>(const Overlap& rhs) const { return quality_score_ > rhs.quality_score_; }
+  void PushTaggedReads(sl::BamRecordVector&) const;
 
-  private:
+  bool operator<(const Overlap& rhs) const {
+    return quality_score_ < rhs.quality_score_;
+  }
+  bool operator>(const Overlap& rhs) const {
+    return quality_score_ > rhs.quality_score_;
+  }
+
+ private:
   const Fragment* fragment_;
   const sl::GenomicRegion* breakpoint_;
   OverlapAllele allele_;
   OverlapKind kind_;
-  Fragment::score_type quality_score_; // Phred-scale quality score
+  Fragment::score_type quality_score_;  // Phred-scale quality score
 
   friend class Realigner;
 };
@@ -185,7 +215,8 @@ class Overlap {
 class Realigner {
  public:
   Realigner(const std::string& fasta_path, double insert_size_mean,
-                  double insert_size_std, const InsertSizeDistribution::density_type& insert_size_density);
+            double insert_size_std,
+            const InsertSizeDistribution::density_type& insert_size_density);
 
   sl::BamHeader RefHeader() const { return ref_.Header(); }
   sl::BamHeader AltHeader() const { return alt_.Header(); }
@@ -203,8 +234,8 @@ class Realigner {
 };
 
 namespace test {
-  std::vector<AlleleAlignments::score_type> TestScoreAlignment(const std::string& ref_sequence, const std::string& alignment_path);
+std::vector<AlleleAlignments::score_type> TestScoreAlignment(
+    const std::string& ref_sequence, const std::string& alignment_path);
 }
-
 
 }  // namespace npsv
