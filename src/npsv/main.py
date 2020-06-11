@@ -1,37 +1,51 @@
 #!/usr/bin/env python3
-import argparse, json, logging, os, re, sys, tempfile, vcf
-from . import npsv_options
+import argparse, io, logging, os, subprocess, shutil, sys, tempfile
+import multiprocessing
+from tqdm import tqdm
+from shlex import quote
+import pysam
+import vcf
+from npsv.npsv_options import *
+from npsv.variant import variant_descriptor, write_record_to_indexed_vcf
+from npsv.feature_extraction import (
+    convert_vcf_to_graph,
+    run_paragraph_on_vcf,
+    extract,
+    header,
+)
+from npsv.random_variants import random_variants
+from npsv.genotyper import genotype_vcf
+from npsv.sample import Sample
 
 
-class HeaderAction(argparse.Action):
-    def __init__(
-        self,
-        option_strings,
-        dest=argparse.SUPPRESS,
-        default=argparse.SUPPRESS,
-        help="Print header line and exit",
-    ):
-        super(HeaderAction, self).__init__(
-            option_strings=option_strings,
-            dest=dest,
-            default=default,
-            nargs=0,
-            help=help,
-        )
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        from feature_extraction import header
-
-        header(sys.stdout)
-        parser.exit()
-
-
-def main():
+def make_argument_parser():
     parser = argparse.ArgumentParser(
-        "npsvg", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        "npsv", formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # Common options
+    # "Core" options
+    parser.add_argument("-i", "--input", help="Input VCF file", type=str, required=True)
+    parser.add_argument("-b", "--bam", help="Input BAM file", type=str, required=True)
+    parser.add_argument(
+        "-o", "--output", help="Output directory", type=str, required=True
+    )
+    parser.add_argument(
+        "--prefix",
+        help="Prefix for feature files and genotypes",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "-r",
+        "--reference-sequence",
+        help="Reference fasta file",
+        type=str,
+        dest="reference",
+        required=True,
+    )
+    parser.add_argument(
+        "--genome", help="BedTools Genome file", type=str, required=True
+    )
     parser.add_argument(
         "-t",
         "--tempdir",
@@ -58,214 +72,313 @@ def main():
         dest="loglevel",
         const=logging.INFO,
     )
+    
 
-    subparsers = parser.add_subparsers(dest="command", help="Sub-command help")
-
-    # Feature extraction
-    parser_features = subparsers.add_parser("features", help="Extract features")
-    parser_features.add_argument(
-        "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
+    # Synthesizer options
+    synth_options = parser.add_argument_group()
+    synth_options.add_argument(
+        "--n", help="Number of replicates", type=int, default=100
     )
-    parser_features.add_argument(
-        "-b", "--bam", help="Input BAM file.", type=str, dest="bam", required=True
+    synth_options.add_argument(
+        "--sim-ref",
+        help="Simulate AC=0 genotype instead of randomly sample",
+        dest="sim_ref",
+        action="store_true",
+        default=False,
     )
-    parser_features.add_argument(
-        "-o",
-        "--output",
-        action="store",
-        type=argparse.FileType("w"),
-        default=sys.stdout,
-        help="Output file",
+    synth_options.add_argument(
+        "--reuse",
+        help="Use existing synthetic BAM files if available in output directory",
+        action="store_true",
+        default=False,
     )
-    parser_features.add_argument(
-        "-r",
-        "--reference-sequence",
-        help="Reference fasta file.",
-        type=str,
-        dest="reference",
-        required=True,
-    )
-    parser_features.add_argument(
-        "--variant-json",
-        dest="variant_json",
-        type=str,
-        help="Pre-converted graph file for input VCF",
-    )
-    parser_features.add_argument(
-        "--manifest", help="Input manifest file.", type=str, dest="manifest"
+    synth_options.add_argument(
+        "--profile", help="ART profile", type=str, default="HS25"
     )
 
-    data_options = parser_features.add_argument_group()
-    npsv_options.add_data_options(data_options)
+    # Options used by "sub tools"
+    paragraph_options = parser.add_argument_group()
+    add_paragraph_options(paragraph_options)
 
-    paragraph_options = parser_features.add_argument_group()
-    npsv_options.add_paragraph_options(paragraph_options)
+    data_options = parser.add_argument_group()
+    add_data_options(data_options)
 
-    feature_options = parser_features.add_argument_group()
-    npsv_options.add_feature_options(feature_options)
-    feature_options.add_argument(
-        "--no-header", dest="header", action="store_false", help="Suppress header line"
-    )
-    feature_options.add_argument("--header-only", action=HeaderAction)
+    feature_options = parser.add_argument_group()
+    add_feature_options(feature_options)
 
-    feature_options.add_argument("--ac", help="Set allele count", type=int)
+    random_options = parser.add_argument_group()
+    add_random_options(random_options)
 
-    # Random variant generation
-    parser_random = subparsers.add_parser("random", help="Extract features")
-    parser_random.add_argument(
-        "-i",
-        "--input",
-        help="Input VCF file to create equivalent random variants for",
-        type=str,
-        dest="input",
-    )
-    parser_random.add_argument(
-        "-o",
-        "--output",
-        action="store",
-        type=argparse.FileType("w"),
-        default=sys.stdout,
-        help="Output file",
-    )
-    parser_random.add_argument(
-        "-r",
-        "--reference-sequence",
-        help="Reference fasta file.",
-        type=str,
-        dest="reference",
-        required=True,
-    )
-    parser_random.add_argument(
-        "--genome", type=str, help="BedTools Genome file", required=True
-    )
-    npsv_options.add_random_options(parser_random)
+    genotyping_options = parser.add_argument_group()
+    add_genotyping_options(genotyping_options)
 
-    parser_random.add_argument(
-        "--n", action="store", type=int, default=100, help="Number of variants"
-    )
+    return parser
 
-    # Genotyper
-    parser_genotype = subparsers.add_parser("genotype", help="Genotype variants")
-    parser_genotype.add_argument(
-        "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
-    )
-    parser_genotype.add_argument(
-        "--sim", type=str, help="Table of simulated data", required=True
-    )
-    parser_genotype.add_argument(
-        "--real", type=str, help="Table of real data", required=True
-    )
-    parser_genotype.add_argument(
-        "-o",
-        "--output",
-        action="store",
-        type=argparse.FileType("w"),
-        default=sys.stdout,
-        help="Output file",
-    )
-    npsv_options.add_genotyping_options(parser_genotype)
+def art_read_length(read_length, profile):
+    """Make sure read length is compatible ART"""
+    if profile in ("HS10", "HS20"):
+        return min(read_length, 100)
+    elif profile in ("HS25", "HSXn", "HSXt"):
+        return min(read_length, 150)
+    else:
+        return read_length
 
-    # Plotting
-    parser_plot = subparsers.add_parser("plot", help="Plot features")
-    parser_plot.add_argument(
-        "--sim", type=str, help="Table of simulated data", required=True
+def check_if_bwa_index_loaded(reference: str) -> bool:
+    """Check if bwa index is loaded in shared memory
+    
+    Args:
+        reference (str): Path to reference file
+    
+    Returns:
+        bool: True if reference is already loaded
+    """
+    shared_name = os.path.basename(reference)
+    indices = subprocess.check_output(
+        "bwa shm -l", shell=True, universal_newlines=True, stderr=subprocess.DEVNULL
     )
-    parser_plot.add_argument(
-        "--real", type=str, help="Table of real data", required=True
-    )
-    parser_plot.add_argument(
-        "-v", "--vcf", type=str, help=".vcf file containing variants", required=True
-    )
-    parser_plot.add_argument(
-        "-o", "--output", help="Output directory", type=str, required=True
-    )
-
-    # BAM preprocessing
-    parser_preproc = subparsers.add_parser(
-        "preprocess", help="Preprocess BAM to compute relevant stats"
-    )
-    parser_preproc.add_argument(
-        "-b", "--bam", help="Input BAM file.", type=str, dest="bam", required=True
-    )
-    parser_preproc.add_argument(
-        "-r",
-        "--reference-sequence",
-        help="Reference fasta file.",
-        type=str,
-        dest="reference",
-        required=True,
-    )
-    parser_preproc.add_argument(
-        "-o", "--output", type=str, help="Output file", required=True
-    )
-    parser.add_argument(
-        "--goleft",
-        default="goleft",
-        type=str,
-        help="Path to goleft executable",
-    )
-    parser_preproc_picard = parser_preproc.add_mutually_exclusive_group(required=True)
-    parser_preproc_picard.add_argument(
-        "--genome", type=str, help="BedTools Genome file"
-    )
-    parser_preproc_picard.add_argument(
-        "--picard-gc",
-        type=str,
-        help="Path to Picard detail GC bias metrics",
-        dest="picard_gc"
-    )
-    parser_preproc.add_argument(
-        "--picard-insert",
-        type=str,
-        help="Path to Picard insert size metrics",
-        dest="picard_insert"
-    )
-    parser_preproc.add_argument(
-        "--picard-wgs",
-        type=str,
-        help="Path to Picard wgs metrics",
-        dest="picard_wgs"
-    )
+    for index in indices.split("\n"):
+        if index.startswith(shared_name):
+            return True
+    return False
 
 
+def load_bwa_index(reference: str):
+    with bwa_shm_lock:
+        # Implement double check locking for the bwa index
+        if not check_if_bwa_index_loaded(reference):
+            logging.info(f"Loading bwa index {args.reference} into shared memory")
+            subprocess.check_call(
+                f"bwa shm {quote(reference)}", shell=True, stderr=subprocess.DEVNULL
+            )
+
+
+def unload_bwa_index():
+    """Delete all bwa indices in shared memory"""
+    subprocess.check_call("bwa shm -d", shell=True, stderr=subprocess.DEVNULL)
+
+
+def simulate_deletion(args, sample, record, variant_vcf_path, description):
+    #logging.info(f"Extracting features for {description}")
+    out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
+
+    # In correctly formatted VCF, POS is first base of event when zero-indexed, while
+    # END is 1-indexed closed end or 0-indexed half-open end
+    pos = record.POS
+    end = int(record.sv_end)
+    event_length = end - pos
+
+    if args.sim_ref:
+        # Generate the null model via simulation
+        simulated_ACs = [0, 1, 2]
+    else:
+        # Generate random variants as the null model
+        random_vcf_path = os.path.join(args.output, description + ".random.vcf")
+        with open(random_vcf_path, "w") as random_vcf_file:
+            random_variants(
+                args.reference,
+                args.genome,
+                args.gaps,
+                random_vcf_file,
+                size=event_length,
+                n=args.n,
+                use_X=args.use_X,
+                only_sex=args.only_sex,
+            )
+
+        # Extract features from the random data
+        random_extract_args = argparse.Namespace(**vars(args))
+        setattr(random_extract_args, "header", False)
+        setattr(random_extract_args, "threads", 1)
+        extract(
+            random_extract_args,
+            random_vcf_path,
+            args.bam,
+            sample=sample,
+            ac=0,
+            out_file=out_file,
+            force_chrom=record.CHROM,
+            force_pos=pos,
+            force_end=end,
+        )
+
+        simulated_ACs = [1, 2]
+
+    # Extract features from synthetic data.
+    synth_extract_args = argparse.Namespace(**vars(args))
+    setattr(synth_extract_args, "header", False)
+    setattr(synth_extract_args, "threads", 1)
+
+    for z in simulated_ACs:
+        synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
+        if not args.reuse or not os.path.exists(synthetic_bam_path):
+            #logging.info(f"Simulating reads to generate {synthetic_bam_path}")
+            
+            # Load BWA index into shared memory if not already loaded
+            shared_ref_arg = ""
+            if check_if_bwa_index_loaded(args.reference):
+                shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
+
+            # Generate synthetic BAM file
+            synth_commandline = f"synthBAM \
+                -t {quote(args.tempdir)} \
+                -R {quote(args.reference)} \
+                {shared_ref_arg} \
+                -g {quote(args.genome)} \
+                -c {sample.mean_coverage / 2:0.1f} \
+                -m {sample.mean_insert_size} \
+                -s {sample.std_insert_size} \
+                -l {art_read_length(sample.read_length, args.profile)} \
+                -p {args.profile} \
+                -f {args.flank} \
+                -i {args.n} \
+                -z {z} \
+                -n {sample.name} \
+                {variant_vcf_path} {synthetic_bam_path}"
+            subprocess.check_call(
+                synth_commandline, shell=True, stderr=subprocess.DEVNULL
+            )
+
+        for i in range(1, args.n + 1):
+            try:
+                single_sample_bam_file = tempfile.NamedTemporaryFile(
+                    mode="wb", delete=False, suffix=".bam", dir=args.tempdir
+                )
+                single_sample_bam_file.close()
+
+                pysam.view(  # pylint: disable=no-member
+                    synthetic_bam_path,
+                    "-b",
+                    "-h",
+                    "-r",
+                    f"synth{i}",
+                    "-o",
+                    single_sample_bam_file.name,
+                    catch_stdout=False,
+                )
+                pysam.index(  # pylint: disable=no-member
+                    single_sample_bam_file.name, "-b"
+                )
+
+                extract(
+                    synth_extract_args,
+                    variant_vcf_path,
+                    single_sample_bam_file.name,
+                    ac=z,
+                    sample=sample,
+                    out_file=out_file,
+                )
+            finally:
+                os.remove(single_sample_bam_file.name)
+                os.remove(single_sample_bam_file.name + ".bai")
+
+    out_file.close()
+    return out_file.name
+
+
+def init_pool():
+    """Initialize task pool"""
+
+
+def main():
+    parser = make_argument_parser()
     args = parser.parse_args()
 
-    # Configure logging
     logging.basicConfig(level=args.loglevel)
 
-    if args.command == "features":
-        from .feature_extraction import extract
+    logging.info(f"Starting worker pool with {args.threads} processes")
+    # https://pythonspeed.com/articles/python-multiprocessing/
+    task_pool = multiprocessing.Pool(args.threads, init_pool)
+    #multiprocessing_context = multiprocessing.get_context("spawn")
+    #task_pool = multiprocessing_context.Pool(args.threads, init_pool)
 
-        extract(args, args.input, args.bam, out_file=args.output, ac=args.ac)
-    elif args.command == "genotype":
-        from .genotyper import genotype_vcf
-        genotype_vcf(args, args.input, args.sim, args.real, args.output)
-    elif args.command == "random":
-        from .random_variants import random_variants
-
-        random_variants(
-            args.reference,
-            args.genome,
-            args.gaps,
-            args.output,
-            size=args.size,
-            n=args.n,
-            use_X=args.use_X,
-            only_sex=args.only_sex,
-            variant_path=args.input,
+    # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
+    if args.stats_path is not None:
+        logging.info("Extracting BAM stats from NPSV stats file")
+        sample = Sample.from_npsv(args.stats_path, bam_path=args.bam)
+    elif None not in (
+        args.fragment_mean,
+        args.fragment_sd,
+        args.read_length,
+        args.depth,
+    ):
+        logging.info("Using Normal distribution for BAM stats")
+        sample = Sample.from_distribution(
+            args.bam,
+            args.fragment_mean,
+            args.fragment_sd,
+            args.read_length,
+            mean_coverage=args.depth,
         )
-    elif args.command == "plot":
-        from .plot import plot_features
-        plot_features(args, args.sim, args.real, args.vcf, args.output)
+    else:
+        raise parser.error(
+            "Library information needed. Either provide distribution parameters or run `npsvg preprocess` to generate stats file."
+        )
 
-    elif args.command == "preprocess":
-        from .sample import compute_bam_stats
+    # For each variant generate synthetic bam file(s) and extract relevant evidence
+    record_results = []
+    vcf_reader = vcf.Reader(filename=args.input)
+    for record in tqdm(vcf_reader, desc="Preparing variants"):
+        # npsv currently only supports deletions
+        if not record.is_sv or record.var_subtype != "DEL":
+            continue
 
-        # Compute stats and write to JSON file
-        stats = compute_bam_stats(args, args.bam)
-        with open(args.output, "w") as file:
-            json.dump(stats, file)
+        description = variant_descriptor(record)
+        if record.ID is None:
+            # Update ID to be more meaningful
+            record.ID = description
 
+        # Construct single variant VCF outside of worker so we don't need to pass the reader into the thread
+        variant_vcf_path = os.path.join(args.output, description + ".vcf")
+        if not args.reuse or not os.path.exists(variant_vcf_path + ".gz"):
+            variant_vcf_path = write_record_to_indexed_vcf(
+                record, vcf_reader, variant_vcf_path
+            )
+        else:
+            # Variant file already exists, no need to recreate
+            variant_vcf_path += ".gz"
+
+        record_results.append(
+            task_pool.apply_async(
+                simulate_deletion, (args, sample, record, variant_vcf_path, description)
+            )
+        )
+
+    # Concatenate output files to create final result
+    sim_tsv_path = os.path.join(args.output, args.prefix + ".sim.tsv")
+    logging.info("Concatenating results in %s", sim_tsv_path)
+    with open(sim_tsv_path, "w") as file:
+        header(out_file=file, ac=True)
+    with open(sim_tsv_path, "ab") as sink:
+        for result in tqdm(record_results, desc="Simulating variants"):
+            with open(result.get(), "rb") as source:
+                shutil.copyfileobj(source, sink)
+
+    logging.info("Shutting down worker pool")
+    task_pool.close()
+    task_pool.join()
+    # Finished generating features from simulated data
+
+    # Extract features from "real" data
+    with open(
+        os.path.join(args.output, args.prefix + ".real.tsv"), "w"
+    ) as real_tsv_file:
+        logging.info(
+            "Extracting features from 'real' data (output in %s)", real_tsv_file.name
+        )
+        real_args = argparse.Namespace(**vars(args))
+        setattr(real_args, "header", True)
+        setattr(real_args, "variant_json", None)
+        setattr(real_args, "manifest", None)
+        extract(real_args, args.input, args.bam, out_file=real_tsv_file, sample=sample)
+
+    # Perform genotyping
+    with open(os.path.join(args.output, args.prefix + ".npsv.vcf"), "w") as gt_vcf_file:
+        logging.info("Determining genotypes (output in %s)", gt_vcf_file.name)
+        genotyping_args = argparse.Namespace(**vars(args))
+        genotype_vcf(
+            genotyping_args, args.input, sim_tsv_path, real_tsv_file.name, gt_vcf_file
+        )
 
 if __name__ == "__main__":
     main()
+

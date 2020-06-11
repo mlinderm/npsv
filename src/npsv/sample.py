@@ -43,6 +43,9 @@ class ParametricFragmentDensity:
     def __getitem__(self, size):
         return norm.pdf(size, loc=self.mean, scale=self.sd)
 
+    def as_dict(self):
+        return {}
+
 
 class SparseFragmentDensity:
     def __init__(self, mean, sd, dens):
@@ -56,6 +59,8 @@ class SparseFragmentDensity:
             density = norm.pdf(size, loc=self.mean, scale=self.sd)
         return density
 
+    def as_dict(self):
+        return self.dens
 
 class Library:
     """
@@ -97,10 +102,11 @@ class DistributionLibrary(Library):
 class HistogramLibrary(Library):
     def __init__(self, mean, sd, read_length, fragment_hist):
         # Convert histogram to density
-        total_fragments = sum(fragment_hist.values())
         fragment_density = {}
-        for length, count in fragment_hist.items():
-            fragment_density[int(length)] = float(count) / total_fragments
+        if fragment_hist:
+            total_fragments = sum(fragment_hist.values())
+            for length, count in fragment_hist.items():
+                fragment_density[int(length)] = float(count) / total_fragments
 
         Library.__init__(
             self,
@@ -111,7 +117,7 @@ class HistogramLibrary(Library):
         )
 
 
-class NPSVStatsLibrary(DistributionLibrary):
+class NPSVStatsLibrary(HistogramLibrary):
     def __init__(
         self,
         mean,
@@ -119,8 +125,9 @@ class NPSVStatsLibrary(DistributionLibrary):
         read_length,
         gc_normalized_coverage={},
         chrom_normalized_coverage={},
+        fragment_hist={},
     ):
-        DistributionLibrary.__init__(self, mean, sd, read_length)
+        HistogramLibrary.__init__(self, mean, sd, read_length, fragment_hist)
         self.gc_normalization_factors = gc_normalized_coverage
         self.chrom_normalization_factors = chrom_normalized_coverage
 
@@ -264,8 +271,9 @@ class Sample(object):
                 bam_info["mean_insert_size"],
                 bam_info["std_insert_size"],
                 bam_info["read_length"],
-                gc_normalized_coverage,
-                bam_info.get("chrom_normalized_coverage", {}),
+                gc_normalized_coverage=gc_normalized_coverage,
+                chrom_normalized_coverage=bam_info.get("chrom_normalized_coverage", {}),
+                fragment_hist=bam_info.get("hist_insert_size", {}),
             )
 
             library_dict = {}
@@ -288,7 +296,7 @@ class Sample(object):
     def has_read_group(self, read_group):
         return read_group in self.rg_to_lib
 
-    def get_lib(self, read_group: str) -> Library:
+    def get_library(self, read_group: str) -> Library:
         """Return Library object for specific read_group or generic library is read_group doesn't exist
         
         Args:
@@ -301,15 +309,18 @@ class Sample(object):
 
     @property
     def read_length(self, read_group=None):
-        return self.get_lib(read_group).read_length
+        return self.get_library(read_group).read_length
 
     @property
     def mean_insert_size(self, read_group=None):
-        return self.get_lib(read_group).mean
+        return self.get_library(read_group).mean
 
     @property
     def std_insert_size(self, read_group=None):
-        return self.get_lib(read_group).sd
+        return self.get_library(read_group).sd
+    
+    def insert_size_density(self, read_group=None):
+        return self.get_library(read_group).insert_size_density
 
     def gc_mean_coverage(self, gc_fraction: float, read_group: str = None) -> float:
         """Return mean coverage for bins with this GC fraction
@@ -324,7 +335,7 @@ class Sample(object):
             float: Mean coverage
         """
         return (
-            self.get_lib(read_group).gc_normalized_coverage(gc_fraction)
+            self.get_library(read_group).gc_normalized_coverage(gc_fraction)
             * self.mean_coverage
         )
 
@@ -339,7 +350,7 @@ class Sample(object):
             float: Mean coverage
         """
         return (
-            self.get_lib(read_group).chrom_normalized_coverage(chrom)
+            self.get_library(read_group).chrom_normalized_coverage(chrom)
             * self.mean_coverage
         )
 
@@ -508,6 +519,10 @@ def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
         insert_dict = insert_table.to_dict("records")[0]
         covstats_record["template_mean"] = insert_dict["MEAN_INSERT_SIZE"]
         covstats_record["template_sd"] = insert_dict["STANDARD_DEVIATION"]
+
+        insert_hist_table = pd.read_csv(args.picard_insert, sep="\t", comment="#", skiprows=8)
+        insert_hist_dict = dict(zip(insert_hist_table.iloc[:,0], insert_hist_table.iloc[:,1]))
+        covstats_record["template_hist"] = insert_hist_dict
     
     if args.picard_wgs is not None:
         logging.info("Using Picard mean coverage")
@@ -553,5 +568,6 @@ def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
         "gc_normalized_coverage": norm_coverage_by_gc["mean"],
         "gc_bin_count": norm_coverage_by_gc["count"],
         "gc_normalized_coverage_error": norm_coverage_by_gc.get("error", {}),
+        "hist_insert_size": covstats_record["template_hist"],
     }
     return stats

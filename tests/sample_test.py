@@ -16,7 +16,7 @@ class SampleLoadTestSuite(unittest.TestCase):
         self.assertAlmostEqual(sample_object.mean_coverage, 25.46, places=1)
 
         # Get generic library
-        library_object = sample_object.get_lib("HG002")
+        library_object = sample_object.get_library("HG002")
         self.assertIsNotNone(library_object)
 
         self.assertEqual(library_object.read_length, 148)

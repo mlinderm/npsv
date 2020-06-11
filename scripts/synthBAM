@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e -o pipefail
 
-TMPDIR_ROOT=/data/scratch/$USER
-REFERENCE=/data/projects/ngs/resources/gatk/b37/human_g1k_v37.fasta
+TMPDIR_ROOT=$TMPDIR
+REFERENCE=human_g1k_v37.fasta
 GENOME="${REFERENCE/%fasta/genome}"
 SHAREDREF=
 SAMPLE=
@@ -141,7 +141,7 @@ if [[ -z $SHAREDREF && $SAMPLES -gt 1 ]]; then
     >&2 echo "Loading BWA reference index into shared memory"
     bwa shm "$REFERENCE"
     SHAREDREF=$(basename "$REFERENCE")
-    trap "bwa shm -d" 0
+    trap "rm -rf ${TMPDIR}; bwa shm -d;" 0
 elif [[ -z $SHAREDREF ]]; then
     SHAREDREF="$REFERENCE"
 fi

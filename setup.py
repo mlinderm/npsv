@@ -126,7 +126,6 @@ setup(
     license=license,
     url="https://github.com/mlinderm/npsv",
     scripts=[
-        "scripts/npsv",
         "scripts/synthBAM",
         "scripts/vcf2bed",
         "scripts/vcf2samplot",
@@ -134,7 +133,8 @@ setup(
     ],
     entry_points="""
         [console_scripts]
-        npsvg=npsv.main:main
+        npsv=npsv.main:main
+        npsvg=npsv.npsvg:main
     """,
     packages=find_packages("src"),
     package_dir={"": "src"},
