@@ -83,13 +83,8 @@ def file_replace(original_path, match, replace):
         replace (str): Replacement regex
     """
     # Adapted from SeqLib python package.
-    backup_path = original_path + ".bak"
-    if os.path.exists(backup_path):
-        return
-
-    shutil.copyfile(original_path, backup_path)
-
-    original = open(original_path).readlines()
+    with open(original_path) as original_file:
+        original = original_file.readlines()
     with open(original_path, "w") as replaced_file:
         for line in original:
             replaced_line = re.sub(match, replace, line)
@@ -100,8 +95,7 @@ class SeqLibCMakeBuild(CMakeBuild):
     def run(self):
         # To link into a shared library we need to add the -fPIC flag to SeqLib dependencies
         # before building. Adapted from SeqLib python package.
-        cflags_line_re = r"^(CFLAGS *=.*)$"
-
+        cflags_line_re = r"^(CFLAGS\s*=.*)$"
         bwa_makefile_path = os.path.join(
             os.path.dirname(os.path.realpath(__file__)), "lib/seqlib", "bwa", "Makefile"
         )

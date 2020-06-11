@@ -1,7 +1,8 @@
 import argparse, io, os, tempfile, unittest
 import vcf
 import pysam
-from npsv.feature_extraction import Variant
+from npsv.variant import Variant
+from npsv.feature_extraction import count_alleles_with_npsva
 from npsv.sample import Sample
 from npsv import npsva
 
@@ -32,7 +33,8 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             sample = Sample.from_distribution(
                 input_bam, 569.2, 163, 148, mean_coverage=25
             )
-            hom_alt_ref, hom_alt_alt = variant.count_alleles_with_npsva(
+            hom_alt_ref, hom_alt_alt = count_alleles_with_npsva(
+                variant,
                 self.args,
                 input_bam,
                 sample,
@@ -47,7 +49,8 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             sample = Sample.from_distribution(
                 input_bam, 569.2, 163, 148, mean_coverage=25
             )
-            het_ref, het_alt = variant.count_alleles_with_npsva(
+            het_ref, het_alt = count_alleles_with_npsva(
+                variant,
                 self.args,
                 input_bam,
                 sample,
@@ -73,7 +76,8 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
                     delete=False, suffix=".bam"
                 )
                 output_bam_file.close()
-                hom_alt_ref, hom_alt_alt = variant.count_alleles_with_npsva(
+                hom_alt_ref, hom_alt_alt = count_alleles_with_npsva(
+                    variant,
                     self.args,
                     input_bam,
                     sample,

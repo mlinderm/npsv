@@ -1,7 +1,6 @@
 import io, unittest
 import vcf.model
-import npsv.variant as variant
-from npsv.feature_extraction import Variant
+from npsv.variant import Variant, is_precise, get_ci
 
 class VariantHelpersTestSuite(unittest.TestCase):
     """Variant helper functions"""
@@ -21,8 +20,8 @@ class VariantHelpersTestSuite(unittest.TestCase):
         )
         for record in vcf.Reader(vcf_file):
             self.assertTrue(record.is_sv)
-            self.assertTrue(variant.is_precise(record))
-            self.assertEqual(variant.get_ci(record, "CIPOS", 10), [0, 0])
+            self.assertTrue(is_precise(record))
+            self.assertEqual(get_ci(record, "CIPOS", 10), [0, 0])
 
 
     def test_ci_for_imprecise_variants(self):
@@ -40,9 +39,9 @@ class VariantHelpersTestSuite(unittest.TestCase):
         )
         for record in vcf.Reader(vcf_file):
             self.assertTrue(record.is_sv)
-            self.assertFalse(variant.is_precise(record))
-            self.assertEqual(variant.get_ci(record, "CIPOS", 10), [-56, 20])
-            self.assertEqual(variant.get_ci(record, "CIEND", 10), [-10, 10])
+            self.assertFalse(is_precise(record))
+            self.assertEqual(get_ci(record, "CIPOS", 10), [-56, 20])
+            self.assertEqual(get_ci(record, "CIEND", 10), [-10, 10])
 
 
 class VariantClassTestSuite(unittest.TestCase):

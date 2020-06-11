@@ -33,9 +33,7 @@ python3 setup.py develop
 and run the genotyper on the available test data:
 ```
 mkdir -p tests/results
-python3 scripts/npsv \
-    --vcf2paragraph /opt/paragraph/bin/vcf2paragraph.py \
-    --grmpy /opt/paragraph/bin/grmpy \
+npsv \
     -r /data/human_g1k_v37.fasta \
     --genome etc/human_g1k_v37.genome \
     --gaps etc/human_g1k_v37.gaps.bed.gz \
@@ -46,6 +44,7 @@ python3 scripts/npsv \
     --n 5 \
     --reuse \
     --prefix 1_1598414_1598580_DEL.result \
-    --sim-ref
+    --sim-ref \
+    --local -c rf
 ```
 
