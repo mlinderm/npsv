@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse, io, logging, os, subprocess, shutil, sys, tempfile
 import multiprocessing
+from multiprocessing_logging import install_mp_handler
 from tqdm import tqdm
 from shlex import quote
 import pysam
@@ -284,7 +285,8 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel)
-
+    install_mp_handler()
+    
     logging.info(f"Starting worker pool with {args.threads} processes")
     # https://pythonspeed.com/articles/python-multiprocessing/
     task_pool = multiprocessing.Pool(args.threads, init_pool)

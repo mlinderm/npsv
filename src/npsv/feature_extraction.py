@@ -206,7 +206,6 @@ class DeletionVariant(Variant):
 
             # Reference and alternate breakpoint spans in synthetic fasta (1-indexed)
             length = self.event_length
-            #logging.debug("Event length: %d (%d-%d)", length, self.record.POS, self.record.sv_end)
             alt_length = self.alt_length
 
             rl_breakpoint = f"{ref_contig}:{args.flank}-{args.flank+1}"
@@ -228,12 +227,11 @@ class DeletionVariant(Variant):
                     "ar_region"
                 ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
 
-            #logging.debug("Counting reads for %s and %s alleles in %s", ref_contig, alt_contig, fasta_path)
+            logging.debug("Counting reads for %s and %s alleles in %s", ref_contig, alt_contig, fasta_path)
             insert_size_density_dict = sample.insert_size_density().as_dict()
             realigner = npsva.Realigner(fasta_path, sample.mean_insert_size, sample.std_insert_size, insert_size_density_dict)
             
-            #logging.debug("Counting reads at ref. breakpoints (%s, %s) and alt. breakpoints (%s, %s)", rl_breakpoint, count_alignment_args["rr_region"], al_breakpoint, count_alignment_args.get("ar_region", None))
-            #count_alignment_args["overlap_bam"] = "test.bam"
+            logging.debug("Counting reads at ref. breakpoints (%s, %s) and alt. breakpoints (%s, %s)", rl_breakpoint, count_alignment_args["rr_region"], al_breakpoint, count_alignment_args.get("ar_region", None))
             counts = realigner.count_alignments(
                 input_bam, rl_breakpoint, al_breakpoint, **count_alignment_args, **kwargs
             )
@@ -622,6 +620,7 @@ def extract(
         #     record, graph_alignments[record.ID]
         # )
         # features.read_counts = (ref_split, alt_split)
+        
         # -------------------------------------
         # Paired-end evidence
         # -------------------------------------
@@ -665,7 +664,7 @@ def extract(
 
         # INSERT_UPPER and INSERT_LOWER adapted from:
         # https://www.sciencedirect.com/science/article/pii/S0092867418316337#sec4
-        # ref_paired, ref_alt adapted from SVTyper
+        # ref_paired, alt_paired adapted from SVTyper
         ref_paired = alt_paired = insert_total = insert_upper = insert_lower = 0
         for fragment in fragments:
 
