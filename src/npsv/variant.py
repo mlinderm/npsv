@@ -56,6 +56,24 @@ class Variant(object):
         )
 
     @property
+    def chrom(self):
+        return self.record.CHROM
+
+    @property
+    def pos(self):
+        return self.record.POS
+
+    @property
+    def id(self):
+        return self.ID
+
+    @property
+    def end(self):
+        """1-indexed closed end"""
+        return int(self.record.sv_end)
+
+
+    @property
     def is_precise(self):
         """Return true if SV has precise breakpoints"""
         # PyVCF approach for is_sv_precise is not flexible enough
@@ -84,21 +102,33 @@ class Variant(object):
             else:
                 return [-default_ci, default_ci]
 
+    def region_string(self, flank=0):
+        """Return 1-indexed fully closed region"""
+        # In correctly formatted VCF, POS is first base of event when zero-indexed, while
+        # END is 1-indexed closed end or 0-indexed half-open end
+        return f"{self.record.CHROM}:{self.record.POS+1-flank}-{self.end+flank}"
+
+    def right_flank_region_string(self, right_flank, left_flank=0):
+        """Return 1-indexed fully closed region"""
+        return f"{self.record.CHROM}:{self.end+1+left_flank}-{self.end+right_flank}"
+
+    def reference_sequence(self, args, region=None, flank=0):
+        if region is None:
+            region = self.region_string(flank)
+
+        # pylint: disable=no-member
+        with pysam.FastaFile(args.reference) as ref_fasta:
+            ref_seq = ref_fasta.fetch(region=region)
+            return ref_seq
+
     def to_minimal_vcf(self, args):
         raise NotImplementedError()
 
     def synth_fasta(self, args):
         # TODO: Normalize ref and alt contig lengths
-        region = "{}:{}-{}".format(
-            self.record.CHROM,
-            self.record.POS - args.flank + 1,
-            int(self.record.sv_end) + args.flank,
-        )
-
-        # pylint: disable=no-member
-        with pysam.FastaFile(args.reference) as ref_fasta:
-            ref_seq = ref_fasta.fetch(region=region)
-
+        region = self.region_string(args.flank)
+        ref_seq = self.reference_sequence(args, region=region)
+        
         # Construct alternate alleles with bcftools consensus
         try:
             with tempfile.NamedTemporaryFile(
@@ -158,6 +188,27 @@ class DeletionVariant(Variant):
         else:
             return len(allele)
 
+    @property
+    def as_bedtools_interval(self):
+        # In correctly formatted VCF, POS is first base of event when zero-indexed, while
+        # END is 1-indexed closed end or 0-indexed half-open end
+        import pybedtools as bedtools
+        return bedtools.Interval(self.record.CHROM, self.record.POS, self.record.sv_end)
+
+    def to_minimal_vcf_record(self, info={}):
+        # Mixin additional info fields
+        base_info = { "SVTYPE": "DEL", "END": self.end, "SVLEN": self.event_length }
+        base_info.update(info)
+        line = "{chrom}\t{pos}\t{id}\t{ref}\t{alt}\t.\t.\t{info_string}".format(
+            chrom=self.record.CHROM,
+            pos=self.record.POS,
+            id=self.record.ID or ".",
+            ref=self.record.REF,
+            alt=self.record.ALT[0],
+            info_string=";".join((f"{k}={v}" for (k, v) in base_info.items()))
+        )
+        return line
+
     def to_minimal_vcf(self, args, tempdir=None):
         # Create minimal VCF if needed for use with bcftools
         with tempfile.NamedTemporaryFile(
@@ -176,15 +227,7 @@ class DeletionVariant(Variant):
 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO""",
                 file=vcf_file,
             )
-            record = "{chrom}\t{pos}\t{id}\t{ref}\t{alt}\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len}".format(
-                chrom=self.record.CHROM,
-                pos=self.record.POS,
-                id=self.record.ID or ".",
-                ref=self.record.REF,
-                alt=self.record.ALT[0],
-                end=self.record.sv_end,
-                len=-self.event_length,
-            )
+            record = self.to_minimal_vcf_record()
             print(record, file=vcf_file)
 
         # Unfortunately tabix_index leaks file handles (in is_gzip_file function it appears)

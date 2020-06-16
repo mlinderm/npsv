@@ -173,3 +173,12 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         default=False,
     )
     return parser
+
+def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        "--simple-repeats-bed",
+        dest="simple_repeats_bed",
+        help="UCSC simple repeats BED file",
+        type=str,
+    )
+    return parser

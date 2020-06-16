@@ -227,6 +227,28 @@ def main():
         dest="picard_wgs"
     )
 
+    # Propose alternate representations
+    parser_propose = subparsers.add_parser("propose", help="Propose alternate representations")
+    parser_propose.add_argument(
+        "-r",
+        "--reference-sequence",
+        help="Reference fasta file.",
+        type=str,
+        dest="reference",
+        required=True,
+    )
+    parser_propose.add_argument(
+        "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
+    )
+    parser_propose.add_argument(
+        "-o",
+        "--output",
+        action="store",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+    npsv_options.add_propose_options(parser_propose)
 
     args = parser.parse_args()
 
@@ -266,6 +288,9 @@ def main():
         with open(args.output, "w") as file:
             json.dump(stats, file)
 
+    elif args.command == "propose":
+        from .propose import propose_variants       
+        propose_variants(args, args.input, args.output)
 
 if __name__ == "__main__":
     main()

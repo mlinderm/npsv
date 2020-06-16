@@ -233,6 +233,9 @@ class Realigner {
   AlleleAlignments ref_, alt_;
 };
 
+std::vector<std::pair<int, int> > AlternateVariantLocations(const std::string& ref_sequence, const std::string& allele_sequence);
+
+
 namespace test {
 std::vector<AlleleAlignments::score_type> TestScoreAlignment(
     const std::string& ref_sequence, const std::string& alignment_path);

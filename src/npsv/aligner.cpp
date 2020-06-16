@@ -496,6 +496,25 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
   return results;
 }
 
+std::vector<std::pair<int, int> > AlternateVariantLocations(const std::string& ref_sequence, const std::string& allele_sequence) {
+  sl::BWAWrapper bwa;
+  bwa.ConstructIndex({sl::UnalignedSequence("ref", ref_sequence)});
+
+  // sl::BamWriter writer(sl::SAM);
+  // writer.SetHeader(bwa.HeaderFromIndex());
+  // writer.Open("/dev/stderr");
+
+  sl::BamRecordVector alignments;
+  bwa.AlignSequence(allele_sequence, "allele", alignments, false, 0, 10);
+  
+  std::vector<std::pair<int, int> > alt_regions;
+  for (const auto & alignment : alignments) {
+    alt_regions.emplace_back(alignment.Position(), alignment.PositionEnd());
+  }
+  //writer.Close();
+  return alt_regions;  
+}
+
 namespace test {
 
 std::vector<AlleleAlignments::score_type> TestScoreAlignment(
