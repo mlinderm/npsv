@@ -13,6 +13,7 @@ from npsv.feature_extraction import (
     run_paragraph_on_vcf,
     extract,
     header,
+    Variant,
 )
 from npsv.random_variants import random_variants
 from npsv.genotyper import genotype_vcf
@@ -143,21 +144,6 @@ def check_if_bwa_index_loaded(reference: str) -> bool:
     return False
 
 
-def load_bwa_index(reference: str):
-    with bwa_shm_lock:
-        # Implement double check locking for the bwa index
-        if not check_if_bwa_index_loaded(reference):
-            logging.info(f"Loading bwa index {args.reference} into shared memory")
-            subprocess.check_call(
-                f"bwa shm {quote(reference)}", shell=True, stderr=subprocess.DEVNULL
-            )
-
-
-def unload_bwa_index():
-    """Delete all bwa indices in shared memory"""
-    subprocess.check_call("bwa shm -d", shell=True, stderr=subprocess.DEVNULL)
-
-
 def simulate_deletion(args, sample, record, variant_vcf_path, description):
     #logging.info(f"Extracting features for {description}")
     out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
@@ -209,12 +195,16 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
     setattr(synth_extract_args, "header", False)
     setattr(synth_extract_args, "threads", 1)
 
+    # Generate FASTA path once (can be reused by realigner for every replicate)
+    variant = Variant.from_pyvcf(record)
+    fasta_path, ref_contig, alt_contig = variant.synth_fasta(args)
+
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
             #logging.info(f"Simulating reads to generate {synthetic_bam_path}")
             
-            # Load BWA index into shared memory if not already loaded
+            # Check if shared reference is available
             shared_ref_arg = ""
             if check_if_bwa_index_loaded(args.reference):
                 shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
@@ -260,6 +250,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     single_sample_bam_file.name, "-b"
                 )
 
+                logging.debug("Extracting features from %s", single_sample_bam_file.name)
                 extract(
                     synth_extract_args,
                     variant_vcf_path,
@@ -267,6 +258,9 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     ac=z,
                     sample=sample,
                     out_file=out_file,
+                    input_fasta=fasta_path,
+                    ref_contig=ref_contig,
+                    alt_contig=alt_contig,
                 )
             finally:
                 os.remove(single_sample_bam_file.name)
@@ -276,22 +270,18 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
     return out_file.name
 
 
-def init_pool():
-    """Initialize task pool"""
-
-
 def main():
     parser = make_argument_parser()
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel)
     install_mp_handler()
-    
+
     logging.info(f"Starting worker pool with {args.threads} processes")
     # https://pythonspeed.com/articles/python-multiprocessing/
-    task_pool = multiprocessing.Pool(args.threads, init_pool)
-    #multiprocessing_context = multiprocessing.get_context("spawn")
-    #task_pool = multiprocessing_context.Pool(args.threads, init_pool)
+    #task_pool = multiprocessing.Pool(args.threads)
+    multiprocessing_context = multiprocessing.get_context("spawn")
+    task_pool = multiprocessing_context.Pool(args.threads, maxtasksperchild=10)
 
     # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
     if args.stats_path is not None:
