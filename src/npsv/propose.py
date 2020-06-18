@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.signal import peak_prominences, find_peaks
 import vcf
-import pybedtools as bedtools
 import pysam
 from .variant import Variant, DeletionVariant
 from npsv import npsva
@@ -90,50 +89,6 @@ def propose_variants(args, input_path, output_file):
                     original=variant.id,
                 )
                 print(record, file=output_file)
-
-        # var_seq = variant.reference_sequence(args)
-
-        # # Repeat properties to specify region for alignment
-        # #min_length = min([int(repeat.fields[3]) for repeat in repeats])
-        # min_start = min(repeat.start for repeat in repeats)
-        # max_end = max(repeat.end for repeat in repeats)
-
-        # ref_seq = variant.reference_sequence(
-        #     args, region=f"{variant.chrom}:{min_start}-{max_end}"
-        # )
-  
-        # print(var_seq)
-        # print(ref_seq)
-
-        # # Slide allele down sequence looking for high scoring alignments
-        # scores = []
-        # for i in range(0, len(ref_seq)-len(var_seq)):
-        #     matches = sum(c1 == c2 for c1, c2 in zip(var_seq, ref_seq[i:i+len(var_seq)]))
-        #     scores.append(matches)
-
-
-        # print(scores)
-        # # Require peak to be larger than random matches...
-        # # peaks + min_start is the 1-indexed start coordinate for first deleted base
-        # peaks, _ = find_peaks(scores, width=1, prominence=int(len(var_seq) * 0.25))
-        # peaks = peaks[peaks + min_start != variant.pos + 1] # Exclude exact match with original sequence
-        
-        # # Generate original record
-        # print(variant.to_minimal_vcf_record({"HAS_PROPOSED": "True"}), file=output_file)
-        
-        # # Generate alternate records
-        # for peak in peaks:
-        #     # TODO: Realign allele sequence to get better end coordinate?
-        #     record = "{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len};ORIGINAL={original}".format(
-        #         chrom=variant.chrom,
-        #         pos=peak + min_start - 1,
-        #         ref=ref_seq[peak-1],
-        #         end=peak + min_start + len(var_seq)-1,
-        #         len=-len(var_seq),
-        #         original=variant.id,
-        #     )
-        #     print(record, file=output_file)
-
        
 
         
