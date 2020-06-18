@@ -181,4 +181,11 @@ def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         help="UCSC simple repeats BED file",
         type=str,
     )
+    parser.add_argument(
+        "--max-proposals",
+        dest="max_proposals",
+        help="Max number of alternate variants to propose for each variant",
+        type=int,
+        default=10,
+    )
     return parser

@@ -1,16 +1,19 @@
+import numpy as np
+from scipy.signal import peak_prominences, find_peaks
 import vcf
 import pybedtools as bedtools
+import pysam
 from .variant import Variant, DeletionVariant
 from npsv import npsva
-from scipy.signal import peak_prominences, find_peaks
 
+PEAK_FINDING_FLANK=5
 
 def propose_variants(args, input_path, output_file):
     """Generate alternate representations of the a variant"""
 
     if args.simple_repeats_bed:
         # TODO? Require certain overlap?
-        simple_repeats_bed = bedtools.BedTool(args.simple_repeats_bed)
+        simple_repeats_bed = pysam.TabixFile(args.simple_repeats_bed)
     else:
         simple_repeats_bed = None
 
@@ -33,70 +36,104 @@ def propose_variants(args, input_path, output_file):
     vcf_reader = vcf.Reader(filename=input_path)
     for record in vcf_reader:
         variant = Variant.from_pyvcf(record)
-        repeats = simple_repeats_bed.tabix_intervals(variant.region_string()) if simple_repeats_bed else []
+        print(variant.to_minimal_vcf_record(), file=output_file)
+
+        repeats = simple_repeats_bed.fetch(region=variant.region_string(), parser=pysam.asTuple()) if simple_repeats_bed else []
         if not repeats:
-            print(variant.to_minimal_vcf_record(), file=output_file)
             continue
-
-        var_seq = variant.reference_sequence(args)
-
-        # Repeat properties to specify region for alignment
-        #min_length = min([int(repeat.fields[3]) for repeat in repeats])
-        min_start = min(repeat.start for repeat in repeats)
-        max_end = max(repeat.end for repeat in repeats)
-
-        ref_seq = variant.reference_sequence(
-            args, region=f"{variant.chrom}:{min_start}-{max_end}"
-        )
-  
-        # Slide allele down sequence looking for high scoring alignments
-        scores = []
-        for i in range(0, len(ref_seq)-len(var_seq)):
-            matches = sum(c1 == c2 for c1, c2 in zip(var_seq, ref_seq[i:i+len(var_seq)]))
-            scores.append(matches)
-
-        # Require peak to be larger than random matches...
-        # peaks + min_start is the 1-indexed start coordinate for first deleted base
-        peaks, _ = find_peaks(scores, width=1, prominence=int(len(var_seq) * 0.25))
-        peaks = peaks[peaks + min_start != variant.pos + 1] # Exclude exact match with original sequence
         
-        # Generate original record
-        print(variant.to_minimal_vcf_record({"HAS_PROPOSED": "True"}), file=output_file)
-        
-        # Generate alternate records
-        for peak in peaks:
-            # TODO: Realign allele sequence to get better end coordinate?
-            record = "{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len};ORIGINAL={original}".format(
-                chrom=variant.chrom,
-                pos=peak + min_start - 1,
-                ref=ref_seq[peak-1],
-                end=peak + min_start + len(var_seq)-1,
-                len=-len(var_seq),
-                original=variant.id,
+        for repeat in repeats:
+            consensus_length = int(repeat[3])
+            repeat_length = consensus_length*float(repeat[4])
+            
+            if variant.event_length > repeat_length or (repeat_length - variant.event_length) / consensus_length < 1:
+                continue
+            
+            event_repeat_count = round(variant.event_length / consensus_length)
+            if event_repeat_count == 0:
+                continue
+
+            # Find event starts
+            repeat_start = int(repeat[1]) - PEAK_FINDING_FLANK # Flank for peak finding
+            repeat_end = int(repeat[2]) + PEAK_FINDING_FLANK
+
+            # repeat is BED-file with half-open start
+            ref_seq = variant.reference_sequence(
+                args, region=f"{repeat[0]}:{repeat_start+1}-{repeat_end}"
             )
-            print(record, file=output_file)
+            
+            consensus_seq = repeat[5]
+            scores = []
+            for i in range(0, len(ref_seq)-len(consensus_seq)):
+                matches = sum(c1 == c2 for c1, c2 in zip(consensus_seq, ref_seq[i:i+len(consensus_seq)]))
+                scores.append(matches)
+        
+            peaks, properties = find_peaks(scores, width=1, distance=consensus_length*0.8)
+        
+            # Enforce maximum number of potential alternate variants by selecting most prominent
+            peaks = peaks[np.argsort(properties["prominences"])[:args.max_proposals]]
 
-       
+            # Generate alternate records
+            for peak in peaks:
+                alt_pos = peak + repeat_start  # 1-indexed base immediately before event
+                alt_end = peak + repeat_start + event_repeat_count * consensus_length
+                if alt_pos == variant.pos and alt_end == variant.end:
+                    continue # Already representation of this variant
+                
+                # TODO: Realign allele sequence to get better end coordinate?
+                record = "{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len};ORIGINAL={original}".format(
+                    chrom=variant.chrom,
+                    pos=alt_pos,
+                    ref=ref_seq[peak-1],
+                    end=alt_end,
+                    len=-(event_repeat_count * consensus_length),
+                    original=variant.id,
+                )
+                print(record, file=output_file)
 
-        # # Get the reference sequence for the variant (with a padding base for constructing subsequent variants)
-        # right_ref_seq = variant.reference_sequence(
-        #     args, region=f"{variant.chrom}:{variant.pos+min_length}-{max_end}"
+        # var_seq = variant.reference_sequence(args)
+
+        # # Repeat properties to specify region for alignment
+        # #min_length = min([int(repeat.fields[3]) for repeat in repeats])
+        # min_start = min(repeat.start for repeat in repeats)
+        # max_end = max(repeat.end for repeat in repeats)
+
+        # ref_seq = variant.reference_sequence(
+        #     args, region=f"{variant.chrom}:{min_start}-{max_end}"
         # )
-        # right_other_spans = npsva.alternate_variant_locations(
-        #     right_ref_seq[1:], var_seq
-        # )
+  
+        # print(var_seq)
+        # print(ref_seq)
 
+        # # Slide allele down sequence looking for high scoring alignments
+        # scores = []
+        # for i in range(0, len(ref_seq)-len(var_seq)):
+        #     matches = sum(c1 == c2 for c1, c2 in zip(var_seq, ref_seq[i:i+len(var_seq)]))
+        #     scores.append(matches)
+
+
+        # print(scores)
+        # # Require peak to be larger than random matches...
+        # # peaks + min_start is the 1-indexed start coordinate for first deleted base
+        # peaks, _ = find_peaks(scores, width=1, prominence=int(len(var_seq) * 0.25))
+        # peaks = peaks[peaks + min_start != variant.pos + 1] # Exclude exact match with original sequence
+        
         # # Generate original record
         # print(variant.to_minimal_vcf_record({"HAS_PROPOSED": "True"}), file=output_file)
         
         # # Generate alternate records
-        # for (left_closed, right_closed) in right_other_spans:
+        # for peak in peaks:
+        #     # TODO: Realign allele sequence to get better end coordinate?
         #     record = "{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len};ORIGINAL={original}".format(
         #         chrom=variant.chrom,
-        #         pos=variant.end + left_closed,
-        #         ref=right_ref_seq[left_closed],
-        #         end=variant.end + right_closed,
-        #         len=-(right_closed - left_closed),
+        #         pos=peak + min_start - 1,
+        #         ref=ref_seq[peak-1],
+        #         end=peak + min_start + len(var_seq)-1,
+        #         len=-len(var_seq),
         #         original=variant.id,
         #     )
         #     print(record, file=output_file)
+
+       
+
+        
