@@ -79,7 +79,7 @@ VCF_COLUMN_HEADERS = [
     "INFO",
     "FORMAT",
 ]
-VCF_FORMAT = "GT:GR"
+VCF_FORMAT = "GT:GR:DM"
 AC_TO_GT = ("0/0", "0/1", "1/1")
 
 
@@ -110,7 +110,7 @@ def pred_to_vcf(real_data, pred, dm2=None) -> str:
         gt=AC_TO_GT[pred] if pred is not None else "./.",
         grr=int(real_data["REF_SPLIT"].iloc[0]),
         gra=int(real_data["ALT_SPLIT"].iloc[0]),
-        md=",".join(dm2) if dm2 else ".",
+        md=",".join(map(str, dm2)) if dm2 is not None else ".",
     )
 
 

@@ -414,6 +414,9 @@ def extract(
     force_chrom: str = None,
     force_pos: int = None,
     force_end: int = None,
+    input_fasta: str = None,
+    ref_contig: str = "ref",
+    alt_contig: str = "alt",
 ):
     """Extract and print deletion SV features for a VCF and BAM file
 
@@ -496,8 +499,13 @@ def extract(
         if variant is None:
             logging.warning("Unsupported variant type for %s. Skipping", record.ID)
             continue
-        ref_count, alt_count, *_ = count_alleles_with_npsva(
-            variant, args, input_bam, sample
+        ref_count, alt_count, *_ = variant.count_alleles_with_npsva(
+            args,
+            input_bam,
+            sample,
+            input_fasta=input_fasta,
+            ref_contig=ref_contig,
+            alt_contig=alt_contig,
         )
         # ref_count, alt_count, *_ = variant.count_alleles_with_svviz2(args, input_bam)
         features.read_counts = (ref_count, alt_count)
