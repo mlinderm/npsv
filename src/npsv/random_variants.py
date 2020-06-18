@@ -34,8 +34,9 @@ def generate_n_variants(contigs, size, n, gaps):
     variants = []
     while len(variants) < n:
         for variant in sample_starts(contigs, size, n=n - len(variants)).itertuples():
-            # TODO: Check for variants beyond end of contig
             if variant[1] == 0:
+                continue
+            if variant[3] >= contigs[contigs["CHROM"] == variant[1]].iloc[0]["LENGTH"]:
                 continue
             gap_iter = gaps.fetch(variant[1], variant[2], variant[3])
             if next(gap_iter, None):

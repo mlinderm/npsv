@@ -79,7 +79,7 @@ VCF_COLUMN_HEADERS = [
     "INFO",
     "FORMAT",
 ]
-VCF_FORMAT = "GT:GR"
+VCF_FORMAT = "GT:GR:DM"
 AC_TO_GT = ("0/0", "0/1", "1/1")
 
 
@@ -103,13 +103,14 @@ def record_to_var_col(record: vcf.model._Record, sample):
     return (record.CHROM, record.POS, int(record.sv_end), record.var_subtype, sample)
 
 
-def pred_to_vcf(real_data, pred) -> str:
+def pred_to_vcf(real_data, pred, dm2=None) -> str:
     """Prediction to VCF call field for sample"""
     assert real_data.shape[0] == 1, "Real data should have just one variant"
-    return "{gt}:{grr},{gra}".format(
-        gt="./." if pred is None else AC_TO_GT[pred],
+    return "{gt}:{grr},{gra}:{md}".format(
+        gt=AC_TO_GT[pred] if pred is not None else "./.",
         grr=int(real_data["REF_SPLIT"].iloc[0]),
         gra=int(real_data["ALT_SPLIT"].iloc[0]),
+        md=",".join(map(str, dm2)) if dm2 is not None else ".",
     )
 
 
@@ -352,6 +353,12 @@ def genotype_vcf(
         "Integer",
         "Reads mapped by Paragraph to reference and alternate sequences",
     )
+    vcf_reader.formats["DM"] = vcf.parser._Format(
+        "DM",
+        "G",
+        "Float",
+        "Mahalanobis distance for each genotype",
+    )
 
     # If original VCF is sites only...
     if len(vcf_reader._column_headers) < 9:
@@ -428,6 +435,8 @@ def genotype_vcf(
                         variant_descriptor(record),
                         np.array2string(mahal_score.values, separator=","),
                     )
+                else:
+                    mahal_score = None
 
                 # Classify variant and generate VCF genotype entry
                 try:
@@ -446,7 +455,7 @@ def genotype_vcf(
                 except ValueError as e:
                     logging.error("Genotyping error for %s: %s", variant_descriptor(record), e)
                     pred = None 
-                call = pred_to_vcf(real_group, pred)
+                call = pred_to_vcf(real_group, pred, dm2=mahal_score)
 
             output_file.write("\t" + call)
 
