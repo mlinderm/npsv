@@ -63,6 +63,17 @@ FEATURES = [
     "ALT_SPAN_REL",
 ]
 ABSOLUTE_FEATURES = ["REF_SPLIT", "ALT_SPLIT", "REF_SPAN", "ALT_SPAN", "COVG"]
+MAHAL_FEATURES = [
+    "INSERT_LOWER",
+    "INSERT_UPPER",
+    "DHFC",
+    "DHBFC",
+    "DHFFC",
+    "REF_READ_REL",
+    "ALT_READ_REL",
+    "REF_SPAN_REL",
+    "ALT_SPAN_REL",
+]
 
 C_RANGE = np.logspace(-2, 10, 13)
 GAMMA_RANGE = np.logspace(-9, 3, 13)
@@ -431,16 +442,18 @@ def genotype_vcf(
                 )
                 # If in debug mode, also print Mahalanobis distance
                 if args.dm2:
-                    # Just use "absolute" features for Mahalanobis distance
-                    _, _, mahal_score = single_mahalanobis(
-                        sim_group, real_group, features=ABSOLUTE_FEATURES
-                    )
-                    logging.info(
-                        "%s@%s: Mahalanobis^2=%s",
-                        sample,
-                        variant_descriptor(record),
-                        np.array2string(mahal_score.values, separator=","),
-                    )
+                    try:
+                        _, _, mahal_score = single_mahalanobis(
+                            sim_group, real_group, features=MAHAL_FEATURES
+                        )
+                        logging.info(
+                            "%s@%s: Mahalanobis^2=%s",
+                            sample,
+                            variant_descriptor(record),
+                            np.array2string(mahal_score.values, separator=","),
+                        )
+                    except:
+                        mahal_score = None
                 else:
                     mahal_score = None
 
