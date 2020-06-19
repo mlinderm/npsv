@@ -41,6 +41,7 @@ def propose_variants(args, input_path, output_file):
         if not repeats:
             continue
         
+        proposed_variants = set()
         for repeat in repeats:
             consensus_length = int(repeat[3])
             repeat_length = consensus_length*float(repeat[4])
@@ -77,18 +78,14 @@ def propose_variants(args, input_path, output_file):
                 alt_pos = peak + repeat_start  # 1-indexed base immediately before event
                 alt_end = peak + repeat_start + event_repeat_count * consensus_length
                 if alt_pos == variant.pos and alt_end == variant.end:
-                    continue # Already representation of this variant
+                    continue # Already have representation of this variant
                 
                 # TODO: Realign allele sequence to get better end coordinate?
-                record = "{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={len};ORIGINAL={original}".format(
-                    chrom=variant.chrom,
-                    pos=alt_pos,
-                    ref=ref_seq[peak-1],
-                    end=alt_end,
-                    len=-(event_repeat_count * consensus_length),
-                    original=variant.id,
-                )
-                print(record, file=output_file)
-       
+                proposed_variants.add((alt_pos, alt_end, ref_seq[peak-1]))
+
+
+        for pos, end, ref in sorted(proposed_variants):
+            record = f"{variant.chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={-(end - pos)};ORIGINAL={variant.id}"
+            print(record, file=output_file)
 
         
