@@ -464,7 +464,7 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
           max_ref.PushTaggedReads(overlap_reads);
       } else {
         // Everything else is an ambiguous overlap
-        // TODO: Write out ambiguous alignments to debugging BAM file
+        // TODO: Write out ambiguous alignments to debugging BAM file, record overlap for ambiguous alignments
         amb_reads += 1;
       }   
     }
