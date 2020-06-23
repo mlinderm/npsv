@@ -54,7 +54,6 @@ if ((EXISTS "${SEQLIB_INCLUDE_DIR}") AND (EXISTS "${SEQLIB_LIBRARY}"))
 else()
     include(ExternalProject)
     # C++ language version needs to match main project
-    #set(seqlib_CXXFLAGS "-g -O2 -fPIC -std=c++14")
     ExternalProject_Add(
         seqlib
         PREFIX "${CMAKE_BINARY_DIR}/lib/seqlib"

@@ -26,11 +26,6 @@ RUN apt-get -qq update && apt-get install --no-install-recommends -yq \
 
 RUN pip3 install --upgrade pip wheel
 
-RUN curl -SL https://github.com/Illumina/paragraph/releases/download/v2.4a/paragraph-v2.4a-binary.zip \
-    -o /opt/paragraph-v2.4a-binary.zip \
-    && unzip -d /opt/paragraph /opt/paragraph-v2.4a-binary.zip \
-    && rm -rf /opt/paragraph-v2.4a-binary.zip
-
 RUN mkdir -p /opt/samblaster \
     && curl -SL https://github.com/GregoryFaust/samblaster/releases/download/v.0.1.25/samblaster-v.0.1.25.tar.gz \
     | tar -xzC /opt/samblaster --strip-components=1 \
@@ -47,9 +42,9 @@ RUN curl -SL https://github.com/brentp/goleft/releases/download/v0.2.3/goleft_li
 
 ADD . /opt/npsv
 
-# Install npsv and paragraph dependencies
-RUN pip3 install -r /opt/npsv/requirements.txt pysam intervaltree jsonschema
+# Install npsv dependencies
+RUN pip3 install -r /opt/npsv/requirements.txt
 
-ENV PATH="/opt/npsv/scripts:/opt/paragraph/bin:${PATH}"
+ENV PATH="/opt/npsv/scripts:${PATH}"
 
 ENTRYPOINT ["/usr/bin/python3"]
