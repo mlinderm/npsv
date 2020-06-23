@@ -51,10 +51,10 @@ def write_record_to_indexed_vcf(record, vcf_reader, vcf_path):
 class Variant(object):
     def __init__(self, record):
         self.record = record
-        self.ID = (
-            self.record.ID if self.record.ID is not None else variant_descriptor(record)
-        )
-
+        # Make sure every variant has a unique ID
+        if self.record.ID is None:
+            self.record.ID = variant_descriptor(record)
+        
     @property
     def chrom(self):
         return self.record.CHROM
@@ -65,7 +65,7 @@ class Variant(object):
 
     @property
     def id(self):
-        return self.ID
+        return self.record.ID
 
     @property
     def end(self):
@@ -210,7 +210,7 @@ class DeletionVariant(Variant):
 
     def to_minimal_vcf_record(self, info={}):
         # Mixin additional info fields
-        base_info = { "SVTYPE": "DEL", "END": self.end, "SVLEN": self.event_length }
+        base_info = { "SVTYPE": "DEL", "END": self.end, "SVLEN": -self.event_length }
         base_info.update(info)
         line = "{chrom}\t{pos}\t{id}\t{ref}\t{alt}\t.\t.\t{info_string}".format(
             chrom=self.record.CHROM,

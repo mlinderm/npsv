@@ -41,10 +41,42 @@ npsv \
     -b tests/data/1_1598414_1598580_DEL.bam \
     --stats-path tests/data/stats.json \
     -o tests/results \
-    --n 5 \
-    --reuse \
     --prefix 1_1598414_1598580_DEL.result \
-    --sim-ref \
-    --local -c rf
+    --n 5 --reuse --sim-ref --local -c rf
 ```
 
+The above command runs the genotyper on the original variants, to generate possible alternate representations, use the `propose` sub-command for `npsvg`, e.g.
+
+```
+mkdir -p tests/results
+npsvg \
+    propose \
+    -r /data/human_g1k_v37.fasta \
+    --simple-repeats-bed /data/simple_repeats.b37.bed.gz \
+    -i tests/data/1_1598414_1598580_DEL.vcf.gz \
+    -o tests/results/1_1598414_1598580_DEL.propose.vcf
+```
+
+then genotype the expanded set of putative variants (note the addition the `--dm2` option to compute the Mahalanobis distance between the real and simulated data):
+
+```
+npsv \
+    -r /data/human_g1k_v37.fasta \
+    --genome etc/human_g1k_v37.genome \
+    --gaps etc/human_g1k_v37.gaps.bed.gz \
+    -i tests/results/1_1598414_1598580_DEL.propose.vcf \
+    -b tests/data/1_1598414_1598580_DEL.bam \
+    --stats-path tests/data/stats.json \
+    -o tests/results \
+    --prefix 1_1598414_1598580_DEL.propose \
+    --n 5 --reuse --sim-ref --local -c rf --dm2
+```
+
+and refine the expanded set by updated the genotypes of the original variant representations:
+
+```
+npsvg \
+    refine \
+    -i tests/results/1_1598414_1598580_DEL.propose.npsv.vcf \
+    -o tests/results/1_1598414_1598580_DEL.propose.refined.vcf
+```

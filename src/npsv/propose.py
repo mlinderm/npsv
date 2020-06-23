@@ -1,17 +1,18 @@
+import collections, logging
 import numpy as np
 from scipy.signal import peak_prominences, find_peaks
 import vcf
 import pysam
-from .variant import Variant, DeletionVariant
-from npsv import npsva
+from .variant import Variant
 
 PEAK_FINDING_FLANK=5
 ORIGINAL_KEY="ORIGINAL"
+VCF_FORMAT="GT:DM:OGT:ODM"
 
 def propose_variants(args, input_vcf: str, output_file):
-    """Generate alternate representations for variants in a VCF file
+    """Generate alternate representations for variants in a VCF file.
 
-    Note that the resulting file is not in sorted order
+    Note that the resulting VCF file is not in sorted order.
 
     Args:
         args: Arguments from arg parseer
@@ -35,6 +36,7 @@ def propose_variants(args, input_vcf: str, output_file):
     if args.simple_repeats_bed:  
         simple_repeats_bed = pysam.TabixFile(args.simple_repeats_bed)
     else:
+        logging.warn("Proposing alternate variant representations requires BED file with simple repeats")
         simple_repeats_bed = None
 
     proposed_variants = {}
@@ -43,7 +45,7 @@ def propose_variants(args, input_vcf: str, output_file):
         variant = Variant.from_pyvcf(record)
         assert variant.is_deletion, "Only deletions currently supported"
         assert variant.id, "Variant proposal requires all variants to have a unique ID"
-        vcf_writer.write_record(record)
+        vcf_writer.write_record(variant.record)
 
         # TODO? Require certain overlap?
         repeats = simple_repeats_bed.fetch(region=variant.region_string(), parser=pysam.asTuple()) if simple_repeats_bed else []
@@ -110,3 +112,82 @@ def propose_variants(args, input_vcf: str, output_file):
         print(record, file=output_file)
 
         
+def refine_variants(args, input_vcf: str, output_file):
+     """Identify the "best" representation for a variant
+
+    Updates the genotypes for "original" variant with more similar alternate representation. Note that the 
+    resulting VCF file is not in sorted order.
+
+    Args:
+        args: Arguments from arg parseer
+        input_vcf (str): Path to input VCF file
+        output_file: Output file object
+    """
+    
+    # Setup VCF reader and writer...
+    vcf_reader = vcf.Reader(filename=input_vcf)
+    # Add new format fields
+    vcf_reader.formats["OGT"] = vcf.parser._Format(
+        "OGT",
+        "1",
+        "String",
+        "Genotype for the original variant",
+    )
+    vcf_reader.formats["ODM"] = vcf.parser._Format(
+        "ODM",
+        "G",
+        "Float",
+        "Original Mahalanobis distance for each genotype",
+    )
+    vcf_writer = vcf.Writer(args.output, vcf_reader)
+
+    # TODO: Include data from original format
+    AltCallData = collections.namedtuple('AltCallData', ['GT','DM','OGT','ODM'])
+
+    original_records = {}
+    alternate_records = {}
+
+    for record in vcf_reader:
+        assert record.ID, "All variants must have a unique ID"
+        if ORIGINAL_KEY not in record.INFO:
+            assert record.ID not in original_records, "Duplicate original variants"
+            original_records[record.ID] = record
+        else:
+            originals = record.INFO[ORIGINAL_KEY]
+            for original in originals:
+                if original in alternate_records:
+                    alternate_records[original].append(record)
+                else:
+                    alternate_records[original] = [record]
+    
+    for id, record in original_records.items():
+        if id not in alternate_records:
+            # No alternate records present for this variant
+            vcf_writer.write_record(record)
+        else:
+            # Update record with new FORMAT
+            record.FORMAT = VCF_FORMAT
+
+            # Identify best alternate representation and genotype for each sample
+            for i, call in enumerate(record.samples):
+                min_dist = min(call.data.DM[1:])
+                min_call = vcf.model._Call(record, call.sample, AltCallData(GT=call.data.GT, DM=call.data.DM, OGT=None, ODM=None))
+
+                # Identify other representations to see if we want to overwrite the genotype
+                for alternate_record in alternate_records[id]:
+                    alternate_call = alternate_record.samples[i]
+                    if not alternate_call.data.DM:
+                        continue
+                        
+                    min_alt_dist_idx = np.argmin(alternate_call.data.DM)
+                    min_alt_dist = alternate_call.data.DM[min_alt_dist_idx]
+                    # Update if:
+                    # 1. Smallest DM^2 for alternate variant is for non-reference genotype, and
+                    # 2. Alternate variant's smallest DM^2 is less than originals non-reference DM^2
+                    if min_alt_dist_idx != 0 and min_alt_dist < min_dist:
+                        min_dist = min_alt_dist
+                        min_call_data = AltCallData(GT=alternate_call.data.GT, DM=alternate_call.data.DM, OGT=call.data.GT, ODM=call.data.DM)
+                        min_call = vcf.model._Call(record, call.sample, min_call_data)
+
+            record.samples[i] = min_call
+            vcf_writer.write_record(record)

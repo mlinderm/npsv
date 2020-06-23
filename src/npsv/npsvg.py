@@ -198,7 +198,7 @@ def main():
     parser_preproc.add_argument(
         "-o", "--output", type=str, help="Output file", required=True
     )
-    parser.add_argument(
+    parser_preproc.add_argument(
         "--goleft",
         default="goleft",
         type=str,
@@ -250,6 +250,20 @@ def main():
     )
     npsv_options.add_propose_options(parser_propose)
 
+    # Select among proposed alternate representations
+    parser_refine = subparsers.add_parser("refine", help="Refine alternate representations to final VCF")
+    parser_refine.add_argument(
+        "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
+    )
+    parser_refine.add_argument(
+        "-o",
+        "--output",
+        action="store",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+
     args = parser.parse_args()
 
     # Configure logging
@@ -291,6 +305,10 @@ def main():
     elif args.command == "propose":
         from .propose import propose_variants       
         propose_variants(args, args.input, args.output)
+    elif args.command == "refine":
+        from .propose import refine_variants
+        refine_variants(args, args.input, args.output)
+
 
 if __name__ == "__main__":
     main()
