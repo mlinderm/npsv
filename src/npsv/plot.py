@@ -10,10 +10,26 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from npsv.variant import variant_descriptor
+from npsv.genotyper import add_derived_features
 
-FEATURE_COL = ["REF_SPAN", "ALT_SPAN", "REF_SPLIT", "ALT_SPLIT", "COVG"]
+FEATURE_COL = [
+    "INSERT_LOWER",
+    "INSERT_UPPER",
+    "DHFC",
+    "DHBFC",
+    "DHFFC",
+    "REF_READ_REL",
+    "ALT_READ_REL",
+    "REF_READ_REL",
+    "ALT_SPAN_REL",
+]
 VARIANT_COL = ["#CHROM", "START", "END", "TYPE"]
 
+def plot_hist(data, col, colors, ax):
+    sns.distplot(data.loc[data["AC"] == "REF",col], kde=False, color=colors[0], ax=ax)
+    sns.distplot(data.loc[data["AC"] == "HET",col], kde=False, color=colors[1], ax=ax)
+    sns.distplot(data.loc[data["AC"] == "HOM",col], kde=False, color=colors[2], ax=ax)
+    ax.axvline(data.loc[data["AC"] == "Act",col].values[0], 0, 1, color=colors[3])
 
 def plot_features(
     args, sim_path: str, real_path: str, vcf_path: str, out_dir_path: str
@@ -32,10 +48,13 @@ def plot_features(
     logging.info("Generating plots in %s", out_dir_path)
 
     # Group the data to prepare for querying variants
-    sim_data = pd.read_table(sim_path, dtype={"#CHROM": str, "AC": int}).groupby(
-        VARIANT_COL
-    )
-    real_data = pd.read_table(real_path, dtype={"#CHROM": str}).groupby(VARIANT_COL)
+    sim_data = pd.read_table(sim_path, dtype={"#CHROM": str, "AC": int})
+    add_derived_features(sim_data)
+    sim_data = sim_data.groupby(VARIANT_COL)
+
+    real_data = pd.read_table(real_path, dtype={"#CHROM": str})
+    add_derived_features(real_data)
+    real_data = real_data.groupby(VARIANT_COL)
 
     # Depending on feature extractor, not all features may be available
     available_features = set(sim_data.obj) & set(real_data.obj)
@@ -83,19 +102,32 @@ def plot_features(
             plot_data["AC"], categories=[0, 1, 2, -1]
         ).rename_categories(["REF", "HET", "HOM", "Act"])
 
-        sns.set(style="ticks", color_codes=True)
         colors = sns.mpl_palette("Set1", 3) + [(0, 0, 0)]  # Actual data is black
-        fig = sns.pairplot(
-            plot_data,
-            vars=features,
-            hue="AC",
-            diag_kind="hist",
-            markers=["o", "o", "o", "x"],
-            palette=colors,
-        )
-        fig.add_legend()
-        fig.fig.suptitle("{}:{}-{}".format(*variant), size=16)
-        fig.fig.subplots_adjust(top=0.95)
+        markers = { "REF": "o", "HET": "o", "HOM": "o", "Act": "s"}
+        
+        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(8.5, 6))
+        
+        sns.scatterplot(ax=ax1, x="REF_READ_REL", y="ALT_READ_REL", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax2, x="REF_SPAN_REL", y="ALT_SPAN_REL", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax3, x="INSERT_LOWER", y="INSERT_UPPER", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        
+        plot_hist(ax=ax4, col="DHFC", data=plot_data, colors=colors)
+        plot_hist(ax=ax5, col="DHBFC", data=plot_data, colors=colors)
+        plot_hist(ax=ax6, col="DHFFC", data=plot_data, colors=colors)
+
+        # sns.set(style="ticks", color_codes=True)
+        # colors = sns.mpl_palette("Set1", 3) + [(0, 0, 0)]  # Actual data is black
+        # fig = sns.pairplot(
+        #     plot_data,
+        #     vars=features,
+        #     hue="AC",
+        #     diag_kind="hist",
+        #     markers=["o", "o", "o", "x"],
+        #     palette=colors,
+        # )
+        # fig.add_legend()
+        fig.suptitle("{}:{}-{}".format(*variant), size=16)
+        fig.subplots_adjust(top=0.95)
 
         # Save plot to file name based on variant descriptor
         description = variant_descriptor(record)

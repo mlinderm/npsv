@@ -66,12 +66,12 @@ ABSOLUTE_FEATURES = ["REF_SPLIT", "ALT_SPLIT", "REF_SPAN", "ALT_SPAN", "COVG"]
 MAHAL_FEATURES = [
     "INSERT_LOWER",
     "INSERT_UPPER",
-    "DHFC",
-    "DHBFC",
+    #"DHFC",
+    #"DHBFC",
     "DHFFC",
     "REF_READ_REL",
     "ALT_READ_REL",
-    "REF_SPAN_REL",
+    "REF_READ_REL",
     "ALT_SPAN_REL",
 ]
 
@@ -292,6 +292,13 @@ def genotype_vcf(
         sim_data = pd.read_table(
             input_sim, dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
         )
+   
+    if sim_data.shape[0] == 0:
+        # No data is available, copy input to output and exit
+        vcf_reader = vcf.Reader(filename=input_vcf) 
+        vcf.Writer(output_file, vcf_reader, lineterminator="")
+        return
+   
     add_derived_features(sim_data)
 
     real_data = pd.read_table(input_real, dtype={"#CHROM": str, "SAMPLE": str})

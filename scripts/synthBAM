@@ -180,6 +180,7 @@ done
 
 if [[ "$SAMPLES" -gt 1 ]]; then
     # Combine all of the individual BAM files
+    >&2 echo "Generating aligned BAM files with replicates"
     sambamba -q merge "${OUTBAM/%bam/synth.bam}" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/synth%d.bam")
     sambamba -q merge "$OUTBAM" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/aligned%d.bam")
 else
@@ -188,3 +189,4 @@ else
     mv "$TMPDIR/aligned1.bam" "$OUTBAM"
     mv "$TMPDIR/aligned1.bam.bai" "$OUTBAM.bai"
 fi
+>&2 echo "Completed generating synthetic data"

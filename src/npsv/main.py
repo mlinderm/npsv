@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse, io, logging, os, subprocess, shutil, sys, tempfile
-import multiprocessing
-from multiprocessing_logging import install_mp_handler
+#import multiprocessing
+#from multiprocessing_logging import install_mp_handler
 from tqdm import tqdm
 from shlex import quote
 import pysam
@@ -18,7 +18,7 @@ from npsv.feature_extraction import (
 from npsv.random_variants import random_variants
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
-
+import ray
 
 def make_argument_parser():
     parser = argparse.ArgumentParser(
@@ -143,7 +143,12 @@ def check_if_bwa_index_loaded(reference: str) -> bool:
             return True
     return False
 
+def ray_iterator(obj_ids):
+    while obj_ids:
+        done, obj_ids = ray.wait(obj_ids)
+        yield ray.get(done[0])
 
+@ray.remote
 def simulate_deletion(args, sample, record, variant_vcf_path, description):
     #logging.info(f"Extracting features for {description}")
     out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
@@ -225,9 +230,20 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                 -z {z} \
                 -n {sample.name} \
                 {variant_vcf_path} {synthetic_bam_path}"
-            subprocess.check_call(
-                synth_commandline, shell=True, stderr=subprocess.DEVNULL
-            )
+            
+            try:
+                synth_result = subprocess.run(
+                    synth_commandline, shell=True, check=True, stderr=subprocess.PIPE,
+                )
+            except subprocess.CalledProcessError as err:
+                print(synth_commandline, file=sys.stderr)
+                print(err.stderr, file=sys.stderr)
+                raise err
+            
+            if not os.path.exists(synthetic_bam_path):
+                print(synth_result.stderr, file=sys.stderr)
+            assert os.path.exists(synthetic_bam_path), "Synthesis script didn't create BAM file"
+
 
         for i in range(1, args.n + 1):
             try:
@@ -275,13 +291,13 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel)
-    install_mp_handler()
 
-    logging.info(f"Starting worker pool with {args.threads} processes")
-    # https://pythonspeed.com/articles/python-multiprocessing/
-    #task_pool = multiprocessing.Pool(args.threads)
-    multiprocessing_context = multiprocessing.get_context("spawn")
-    task_pool = multiprocessing_context.Pool(args.threads, maxtasksperchild=10)
+    logging.info(f"Creating {args.output} output and {args.tempdir} temporary directories if they don't exist")
+    os.makedirs(args.output, exist_ok=True)
+    os.makedirs(args.tempdir, exist_ok=True)
+
+    # Initialize parallel computing setup
+    ray.init(num_cpus=args.threads, temp_dir=args.tempdir)
 
     # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
     if args.stats_path is not None:
@@ -329,11 +345,7 @@ def main():
             # Variant file already exists, no need to recreate
             variant_vcf_path += ".gz"
 
-        record_results.append(
-            task_pool.apply_async(
-                simulate_deletion, (args, sample, record, variant_vcf_path, description)
-            )
-        )
+        record_results.append(simulate_deletion.remote(args, sample, record, variant_vcf_path, description))
 
     # Concatenate output files to create final result
     sim_tsv_path = os.path.join(args.output, args.prefix + ".sim.tsv")
@@ -341,13 +353,10 @@ def main():
     with open(sim_tsv_path, "w") as file:
         header(out_file=file, ac=True)
     with open(sim_tsv_path, "ab") as sink:
-        for result in tqdm(record_results, desc="Simulating variants"):
-            with open(result.get(), "rb") as source:
+        for result in tqdm(ray_iterator(record_results), total=len(record_results), desc="Simulating variants"):
+            with open(result, "rb") as source:
                 shutil.copyfileobj(source, sink)
 
-    logging.info("Shutting down worker pool")
-    task_pool.close()
-    task_pool.join()
     # Finished generating features from simulated data
 
     # Extract features from "real" data

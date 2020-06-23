@@ -499,7 +499,8 @@ def extract(
         if variant is None:
             logging.warning("Unsupported variant type for %s. Skipping", record.ID)
             continue
-        ref_count, alt_count, *_ = variant.count_alleles_with_npsva(
+        ref_count, alt_count, *_ = count_alleles_with_npsva(
+            variant,
             args,
             input_bam,
             sample,
@@ -671,6 +672,7 @@ def extract(
 
         # GC normalized coverage
 
+        # TODO: Do this once if we can since it won't change 
         # nucleotide_content columns: chrom, start, end, pct_at, pct_gc, num_A, num_C, num_G, num_T, num_N, num_oth, seq_len
         # pylint: disable=unexpected-keyword-arg
         nuc_content = bed.BedTool([(record.CHROM, pos, end)]).nucleotide_content(

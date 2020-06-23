@@ -113,13 +113,18 @@ class Variant(object):
         return f"{self.record.CHROM}:{self.end+1+left_flank}-{self.end+right_flank}"
 
     def reference_sequence(self, args, region=None, flank=0):
-        if region is None:
-            region = self.region_string(flank)
+        try:
+            if region is None:
+                region = self.region_string(flank)
 
-        # pylint: disable=no-member
-        with pysam.FastaFile(args.reference) as ref_fasta:
-            ref_seq = ref_fasta.fetch(region=region)
-            return ref_seq
+            # pylint: disable=no-member
+            with pysam.FastaFile(args.reference) as ref_fasta:
+                ref_seq = ref_fasta.fetch(region=region)
+                return ref_seq
+        except ValueError as err:
+            print(region)
+            raise err
+
 
     def to_minimal_vcf(self, args):
         raise NotImplementedError()
