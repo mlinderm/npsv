@@ -188,4 +188,11 @@ def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         type=int,
         default=10,
     )
+    parser.add_argument(
+        "--min-consensus-length",
+        dest="min_consensus_length",
+        help="Minimum consensus repeat length to consider when proposing variants",
+        type=int,
+        default=4,
+    )
     return parser

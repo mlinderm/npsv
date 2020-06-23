@@ -6,72 +6,58 @@ from .variant import Variant, DeletionVariant
 from npsv import npsva
 
 PEAK_FINDING_FLANK=5
+ORIGINAL_KEY="ORIGINAL"
 
-def propose_variants(args, input_path, output_file):
-    """Generate alternate representations of the a variant"""
+def propose_variants(args, input_vcf: str, output_file):
+    """Generate alternate representations for variants in a VCF file
 
-    if args.simple_repeats_bed:
-        # TODO? Require certain overlap?
+    Note that the resulting file is not in sorted order
+
+    Args:
+        args: Arguments from arg parseer
+        input_vcf (str): Path to input VCF file
+        output_file: Output file object
+    """
+
+    # Setup VCF reader and writer...
+    vcf_reader = vcf.Reader(filename=input_vcf)
+    assert ORIGINAL_KEY not in vcf_reader.infos, f"{ORIGINAL_KEY} already presented in VCF INFO field"
+    vcf_reader.infos["ORIGINAL"] = vcf.parser._Info(
+        "ORIGINAL",
+        ".",
+        "String",
+        "This record is a proposed alternate representation for these variant IDs",
+        None, None,
+    )
+    vcf_writer = vcf.Writer(output_file, vcf_reader)
+
+    # Setup repeats file
+    if args.simple_repeats_bed:  
         simple_repeats_bed = pysam.TabixFile(args.simple_repeats_bed)
     else:
         simple_repeats_bed = None
 
-    # TODO: Extract contigs from reference
-    print(
-        """\
-##fileformat=VCFv4.2
-##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
-##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
-##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description="Imprecise structural variation">
-##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
-##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
-##INFO=<ID=END,Number=1,Type=Integer,Description="End coordinate of this variant">
-##INFO=<ID=HAS_PROPOSED,Number=1,Type=String,Description="Original variant with alternate proposed representations">      
-##INFO=<ID=ORIGINAL,Number=.,Type=String,Description="This record is a proposed alternate representation for variant with this ID">      
-##ALT=<ID=DEL,Description="Deletion">
-##contig=<ID=1,length=249250621>
-##contig=<ID=2,length=243199373>
-##contig=<ID=3,length=198022430>
-##contig=<ID=4,length=191154276>
-##contig=<ID=5,length=180915260>
-##contig=<ID=6,length=171115067>
-##contig=<ID=7,length=159138663>
-##contig=<ID=8,length=146364022>
-##contig=<ID=9,length=141213431>
-##contig=<ID=10,length=135534747>
-##contig=<ID=11,length=135006516>
-##contig=<ID=12,length=133851895>
-##contig=<ID=13,length=115169878>
-##contig=<ID=14,length=107349540>
-##contig=<ID=15,length=102531392>
-##contig=<ID=16,length=90354753>
-##contig=<ID=17,length=81195210>
-##contig=<ID=18,length=78077248>
-##contig=<ID=19,length=59128983>
-##contig=<ID=20,length=63025520>
-##contig=<ID=21,length=48129895>
-##contig=<ID=22,length=51304566>
-##contig=<ID=X,length=155270560>
-##contig=<ID=Y,length=59373566>
-##contig=<ID=MT,length=16569>
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO""",
-    )
-
     proposed_variants = {}
 
-    vcf_reader = vcf.Reader(filename=input_path)
     for record in vcf_reader:
         variant = Variant.from_pyvcf(record)
-        print(variant.to_minimal_vcf_record(), file=output_file)
+        assert variant.is_deletion, "Only deletions currently supported"
+        assert variant.id, "Variant proposal requires all variants to have a unique ID"
+        vcf_writer.write_record(record)
 
+        # TODO? Require certain overlap?
         repeats = simple_repeats_bed.fetch(region=variant.region_string(), parser=pysam.asTuple()) if simple_repeats_bed else []
         if not repeats:
             continue
         
         for repeat in repeats:
             consensus_length = int(repeat[3])
+            # Only propose variants for larger VNTRs
+            if consensus_length < args.min_consensus_length:
+                continue
+
+            # Only propose variants if original variant is smaller than repeat region
             repeat_length = consensus_length*float(repeat[4])
-            
             if variant.event_length > repeat_length or (repeat_length - variant.event_length) / consensus_length < 1:
                 continue
             
@@ -116,7 +102,11 @@ def propose_variants(args, input_path, output_file):
 
 
     for chrom, pos, end, ref, originals in proposed_variants.values():
-        record = f"{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={-(end - pos)};ORIGINAL={','.join(originals)}"
+        record = f"{chrom}\t{pos}\t.\t{ref}\t<DEL>\t.\t.\tSVTYPE=DEL;END={end};SVLEN={-(end - pos)};{ORIGINAL_KEY}={','.join(originals)}"
+        if vcf_reader.samples:
+            record += "\tGT"
+        for _ in vcf_reader.samples:
+            record += "\t." # Define unknown genotypes for proposed variants
         print(record, file=output_file)
 
         

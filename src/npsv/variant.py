@@ -84,6 +84,10 @@ class Variant(object):
             or self.record.INFO.get("CIEND") is not None
         )
 
+    @property
+    def is_deletion(self):
+        return False
+
     def get_ci(self, key: str, default_ci: int):
         """Get SV confidence interval or default for VCF record
         
@@ -176,6 +180,10 @@ class Variant(object):
 class DeletionVariant(Variant):
     def __init__(self, record):
         Variant.__init__(self, record)
+
+    @property
+    def is_deletion(self):
+        return True
 
     @property
     def event_length(self):
