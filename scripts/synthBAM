@@ -116,19 +116,15 @@ trap "rm -rf $TMPDIR" 0
 # Generate diploid FASTAs for input to synthetic read generator
 
 # TODO: Make reference and alternate contigs have the same length (going into ART)
-REGION=$(vcf2bed "$INVCF" | bedtools slop -b "$FLANK" -i /dev/stdin -g "$GENOME" | awk '{ print $1 ":" ($2+1) "-" $3; }')
 
 FASTA=$TMPDIR/diploid.fasta
 if [[ $ZYGOSITY -eq 0 ]]; then
-    samtools faidx "$REFERENCE" "$REGION" | sed 's/>\S\+/>ref/' > "$FASTA"
-    echo ">alt" >> "$FASTA"
+    npsvg consensus --flank "$FLANK" --ac 0 -i "$INVCF" -o "$FASTA"
     COVERAGE=$(( COVERAGE * 2 ))
 elif [[ $ZYGOSITY -eq 1 ]]; then
-    samtools faidx "$REFERENCE" "$REGION" | sed 's/>\S\+/>ref/' > "$FASTA"
-    samtools faidx "$REFERENCE" "$REGION" | bcftools consensus "$INVCF" | sed 's/>\S\+/>alt/' >> "$FASTA"
+    npsvg consensus --flank "$FLANK" --ac 1 -i "$INVCF" -o "$FASTA"
 elif [[ $ZYGOSITY -eq 2 ]]; then
-    echo ">ref" > "$FASTA"
-    samtools faidx "$REFERENCE" "$REGION" | bcftools consensus "$INVCF" | sed 's/>\S\+/>alt/' >> "$FASTA"
+    npsvg consensus --flank "$FLANK" --ac 2 -i "$INVCF" -o "$FASTA"
     COVERAGE=$(( COVERAGE * 2 ))
 else
     >&2 echo "Error: Invalid zygosity specified, required values are (0,1,2)"
@@ -136,13 +132,8 @@ else
 fi
 cp "$FASTA" "${OUTBAM/%bam/synth.fasta}"
 
-# Setup BWA with shared memory if generating multiple samples
-if [[ -z $SHAREDREF && $SAMPLES -gt 1 ]]; then
-    >&2 echo "Loading BWA reference index into shared memory"
-    bwa shm "$REFERENCE"
-    SHAREDREF=$(basename "$REFERENCE")
-    trap "rm -rf ${TMPDIR}; bwa shm -d;" 0
-elif [[ -z $SHAREDREF ]]; then
+# If shared memory reference is not defined, use reference files
+if [[ -z $SHAREDREF ]]; then
     SHAREDREF="$REFERENCE"
 fi
 
@@ -184,8 +175,6 @@ if [[ "$SAMPLES" -gt 1 ]]; then
     sambamba -q merge "${OUTBAM/%bam/synth.bam}" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/synth%d.bam")
     sambamba -q merge "$OUTBAM" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/aligned%d.bam")
 else
-    mv "$TMPDIR/synth1.bam" "${OUTBAM/%bam/synth.bam}"
-    mv "$TMPDIR/synth1.bam.bai" "${OUTBAM/%bam/synth.bam.bai}"
     mv "$TMPDIR/aligned1.bam" "$OUTBAM"
     mv "$TMPDIR/aligned1.bam.bai" "$OUTBAM.bai"
 fi

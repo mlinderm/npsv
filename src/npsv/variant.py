@@ -1,7 +1,6 @@
-import os, subprocess, tempfile
+import os, subprocess, tempfile, textwrap
 import vcf
 import pysam
-import pysam.bcftools as bcftools
 
 
 def is_precise(record: vcf.model._Record):
@@ -48,13 +47,14 @@ def write_record_to_indexed_vcf(record, vcf_reader, vcf_path):
     # pylint: disable=no-member
     return pysam.tabix_index(vcf_path, preset="vcf", force=True)
 
+
 class Variant(object):
     def __init__(self, record):
         self.record = record
         # Make sure every variant has a unique ID
         if self.record.ID is None:
             self.record.ID = variant_descriptor(record)
-        
+
     @property
     def chrom(self):
         return self.record.CHROM
@@ -72,7 +72,6 @@ class Variant(object):
         """1-indexed closed end"""
         return int(self.record.sv_end)
 
-
     @property
     def is_precise(self):
         """Return true if SV has precise breakpoints"""
@@ -86,6 +85,10 @@ class Variant(object):
 
     @property
     def is_deletion(self):
+        return False
+
+    @property
+    def is_complex(self):
         return False
 
     def get_ci(self, key: str, default_ci: int):
@@ -129,43 +132,8 @@ class Variant(object):
             print(region)
             raise err
 
-
     def to_minimal_vcf(self, args):
         raise NotImplementedError()
-
-    def synth_fasta(self, args):
-        # TODO: Normalize ref and alt contig lengths
-        region = self.region_string(args.flank)
-        ref_seq = self.reference_sequence(args, region=region)
-        
-        # Construct alternate alleles with bcftools consensus
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".fasta", dir=args.tempdir
-            ) as ref_allele_fasta:
-                vcf_path = self.to_minimal_vcf(args)
-                print(
-                    f">{region}", ref_seq, sep="\n", file=ref_allele_fasta, flush=True
-                )
-                # pylint: disable=no-member
-                alt_seq = bcftools.consensus("-f", ref_allele_fasta.name, vcf_path)
-        finally:
-            os.remove(vcf_path)
-            os.remove(vcf_path + ".tbi")
-
-        ref_contig = region.replace(":", "_").replace("-", "_")
-        alt_contig = ref_contig + "_alt"
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".fasta", dir=args.tempdir
-        ) as allele_fasta:
-            print(">", ref_contig, sep="", file=allele_fasta)
-            print(ref_seq, file=allele_fasta)
-            print(">", alt_contig, sep="", file=allele_fasta)
-            allele_fasta.write(alt_seq[alt_seq.find("\n") + 1 :])
-
-        return allele_fasta.name, ref_contig, alt_contig
-
-    
 
     @classmethod
     def from_pyvcf(cls, record):
@@ -206,11 +174,19 @@ class DeletionVariant(Variant):
         # In correctly formatted VCF, POS is first base of event when zero-indexed, while
         # END is 1-indexed closed end or 0-indexed half-open end
         import pybedtools as bedtools
+
         return bedtools.Interval(self.record.CHROM, self.record.POS, self.record.sv_end)
 
     def to_minimal_vcf_record(self, info={}):
         # Mixin additional info fields
-        base_info = { "SVTYPE": "DEL", "END": self.end, "SVLEN": -self.event_length }
+        assert (
+            "SVLEN" in self.record.INFO
+        ), "SVLEN field not present in upstream variant"
+        base_info = {
+            "SVTYPE": "DEL",
+            "END": self.end,
+            "SVLEN": ",".join(map(str, self.record.INFO["SVLEN"])),
+        }
         base_info.update(info)
         line = "{chrom}\t{pos}\t{id}\t{ref}\t{alt}\t.\t.\t{info_string}".format(
             chrom=self.record.CHROM,
@@ -218,12 +194,11 @@ class DeletionVariant(Variant):
             id=self.record.ID or ".",
             ref=self.record.REF,
             alt=self.record.ALT[0],
-            info_string=";".join((f"{k}={v}" for (k, v) in base_info.items()))
+            info_string=";".join((f"{k}={v}" for (k, v) in base_info.items())),
         )
         return line
 
     def to_minimal_vcf(self, args, tempdir=None):
-        # Create minimal VCF if needed for use with bcftools
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".vcf", delete=False, dir=(tempdir or args.tempdir)
         ) as vcf_file:
@@ -249,4 +224,52 @@ class DeletionVariant(Variant):
         )
         return vcf_file.name + ".gz"
 
-    
+    def synth_fasta(
+        self, args, allele_fasta=None, ac=1, ref_contig=None, alt_contig=None
+    ):
+        # TODO: Normalize ref and alt contig lengths
+        region = self.region_string(args.flank)
+        ref_seq = self.reference_sequence(args, region=region)
+
+        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
+        allele = self.record.ALT[0]
+        if isinstance(allele, vcf.model._SV):
+            alt_seq = ref_seq[: args.flank] + ref_seq[-args.flank :]
+        elif isinstance(allele, vcf.model._Substitution):
+            alt_seq = ref_seq[: args.flank - 1] + str(allele) + ref_seq[-args.flank :]
+        else:
+            raise ValueError("Unsupported allele type")
+
+        if ref_contig is None:
+            ref_contig = region.replace(":", "_").replace("-", "_")
+        if alt_contig is None:
+            alt_contig = ref_contig + "_alt"
+        if allele_fasta is None:
+            allele_fasta = tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".fasta", dir=args.tempdir
+            )
+
+        # Write out FASTA
+        print(">", ref_contig, sep="", file=allele_fasta)
+        if ac == 0 or ac == 1:
+            for line in textwrap.wrap(ref_seq, width=60):
+                print(line, file=allele_fasta)
+        print(">", alt_contig, sep="", file=allele_fasta)
+        if ac == 1 or ac == 2:
+            for line in textwrap.wrap(alt_seq, width=60):
+                print(line, file=allele_fasta)
+
+        return allele_fasta.name, ref_contig, alt_contig
+
+
+def consensus_fasta(args, input_vcf: str, output_file):
+    record = next(vcf.Reader(filename=input_vcf))
+    variant = Variant.from_pyvcf(record)
+    variant.synth_fasta(
+        args,
+        allele_fasta=output_file,
+        ac=args.ac,
+        ref_contig=args.ref_contig,
+        alt_contig=args.alt_contig,
+    )
+

@@ -264,7 +264,43 @@ def main():
         help="Output file",
     )
 
+    # Generate FASTA with consensus sequence
+    parser_consensus = subparsers.add_parser("consensus", help="Generate FASTA with consensus sequence")
+    parser_consensus.add_argument(
+        "-r",
+        "--reference-sequence",
+        help="Reference fasta file.",
+        type=str,
+        dest="reference",
+        required=True,
+    )
+    parser_consensus.add_argument(
+        "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
+    )
+    parser_consensus.add_argument(
+        "-o",
+        "--output",
+        action="store",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+    parser_consensus.add_argument(
+        "--flank", help="Flank size for simulation region", type=int, default=3000
+    )
+    parser_consensus.add_argument(
+        "--ac", help="Allele count for generating FASTA", type=int, default=1
+    )
+    parser_consensus.add_argument(
+        "--ref_contig", help="Name for reference contig", type=str, default="ref"
+    )
+    parser_consensus.add_argument(
+        "--alt_contig", help="Name for alternate contig", type=str, default="alt"
+    )
+
     args = parser.parse_args()
+
+    
 
     # Configure logging
     logging.basicConfig(level=args.loglevel)
@@ -308,6 +344,9 @@ def main():
     elif args.command == "refine":
         from .propose import refine_variants
         refine_variants(args, args.input, args.output)
+    elif args.command == "consensus":
+        from .variant import consensus_fasta
+        consensus_fasta(args, args.input, args.output)
 
 
 if __name__ == "__main__":
