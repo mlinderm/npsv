@@ -119,12 +119,12 @@ trap "rm -rf $TMPDIR" 0
 
 FASTA=$TMPDIR/diploid.fasta
 if [[ $ZYGOSITY -eq 0 ]]; then
-    npsvg consensus --flank "$FLANK" --ac 0 -i "$INVCF" -o "$FASTA"
+    npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 0 -i "$INVCF" -o "$FASTA"
     COVERAGE=$(( COVERAGE * 2 ))
 elif [[ $ZYGOSITY -eq 1 ]]; then
-    npsvg consensus --flank "$FLANK" --ac 1 -i "$INVCF" -o "$FASTA"
+    npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 1 -i "$INVCF" -o "$FASTA"
 elif [[ $ZYGOSITY -eq 2 ]]; then
-    npsvg consensus --flank "$FLANK" --ac 2 -i "$INVCF" -o "$FASTA"
+    npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 2 -i "$INVCF" -o "$FASTA"
     COVERAGE=$(( COVERAGE * 2 ))
 else
     >&2 echo "Error: Invalid zygosity specified, required values are (0,1,2)"

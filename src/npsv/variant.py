@@ -225,7 +225,7 @@ class DeletionVariant(Variant):
         return vcf_file.name + ".gz"
 
     def synth_fasta(
-        self, args, allele_fasta=None, ac=1, ref_contig=None, alt_contig=None
+        self, args, allele_fasta=None, ac=1, ref_contig=None, alt_contig=None, line_width=60
     ):
         # TODO: Normalize ref and alt contig lengths
         region = self.region_string(args.flank)
@@ -252,11 +252,11 @@ class DeletionVariant(Variant):
         # Write out FASTA
         print(">", ref_contig, sep="", file=allele_fasta)
         if ac == 0 or ac == 1:
-            for line in textwrap.wrap(ref_seq, width=60):
+            for line in textwrap.wrap(ref_seq, width=line_width):
                 print(line, file=allele_fasta)
         print(">", alt_contig, sep="", file=allele_fasta)
         if ac == 1 or ac == 2:
-            for line in textwrap.wrap(alt_seq, width=60):
+            for line in textwrap.wrap(alt_seq, width=line_width):
                 print(line, file=allele_fasta)
 
         return allele_fasta.name, ref_contig, alt_contig

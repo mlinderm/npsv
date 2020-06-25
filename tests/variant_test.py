@@ -1,4 +1,4 @@
-import argparse, io, tempfile, unittest
+import argparse, io, sys, tempfile, unittest
 from unittest.mock import patch
 import vcf.model
 from npsv.variant import Variant, is_precise, get_ci
@@ -116,7 +116,7 @@ class SimpleVariantTestSuite(unittest.TestCase):
             self.assertTrue(record.is_sv)
             variant = Variant.from_pyvcf(record)
 
-            fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args)
+            fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args, line_width=sys.maxsize)
             self.assertEqual(ref_contig, "1_899922_899993")
             self.assertEqual(alt_contig, "1_899922_899993_alt")
             mock_ref.assert_called_once_with(self.args, region="1:899922-899993")
@@ -143,7 +143,7 @@ class SimpleVariantTestSuite(unittest.TestCase):
             variant = Variant.from_pyvcf(record)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(
-                self.args, ref_contig="ref", alt_contig="alt"
+                self.args, ref_contig="ref", alt_contig="alt", line_width=sys.maxsize
             )
             self.assertEqual(ref_contig, "ref")
             self.assertEqual(alt_contig, "alt")
@@ -166,7 +166,7 @@ class SimpleVariantTestSuite(unittest.TestCase):
             variant = Variant.from_pyvcf(record)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(
-                self.args, ac=0, ref_contig="ref", alt_contig="alt"
+                self.args, ac=0, ref_contig="ref", alt_contig="alt", line_width=sys.maxsize
             )
             self.assertEqual(ref_contig, "ref")
             self.assertEqual(alt_contig, "alt")
@@ -193,7 +193,7 @@ class SimpleVariantTestSuite(unittest.TestCase):
             variant = Variant.from_pyvcf(record)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(
-                self.args, ac=2, ref_contig="ref", alt_contig="alt"
+                self.args, ac=2, ref_contig="ref", alt_contig="alt", line_width=sys.maxsize
             )
             self.assertEqual(ref_contig, "ref")
             self.assertEqual(alt_contig, "alt")
@@ -249,7 +249,7 @@ class ComplexVariantTestSuite(unittest.TestCase):
             self.assertTrue(record.is_sv)
             variant = Variant.from_pyvcf(record)
 
-            fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args)
+            fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args, line_width=sys.maxsize)
             mock_ref.assert_called_once_with(self.args, region="4:20473846-20474270")
 
             with open(fasta_path, "r") as fasta:

@@ -175,6 +175,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                 n=args.n,
                 use_X=args.use_X,
                 only_sex=args.only_sex,
+                flank=args.flank,
             )
 
         # Extract features from the random data

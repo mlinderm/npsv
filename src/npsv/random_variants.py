@@ -29,19 +29,20 @@ def sample_starts(contigs, size, n):
     )
 
 
-def generate_n_variants(contigs, size, n, gaps):
+def generate_n_variants(contigs, size, n, gaps, flank=0):
     # Create variant regions, checking if they overlap known gaps
     variants = []
     while len(variants) < n:
-        for variant in sample_starts(contigs, size, n=n - len(variants)).itertuples():
-            if variant[1] == 0:
+        for _, chrom, pos, end, linear in sample_starts(contigs, size, n=n - len(variants)).itertuples():
+            assert chrom != 0, "Invalid chromosome"
+            if pos < (2*flank + 1):
                 continue
-            if variant[3] >= contigs[contigs["CHROM"] == variant[1]].iloc[0]["LENGTH"]:
+            if end >= (contigs[contigs["CHROM"] == chrom].iloc[0]["LENGTH"] - 2*flank):
                 continue
-            gap_iter = gaps.fetch(variant[1], variant[2], variant[3])
+            gap_iter = gaps.fetch(chrom, pos, end)
             if next(gap_iter, None):
                 continue
-            variants.append(variant[1:])  # Drop index field
+            variants.append((chrom, pos, end, linear))
     return variants
 
 
@@ -55,6 +56,7 @@ def random_variants(
     use_X=False,
     only_sex=False,
     variant_path=None,
+    flank=0,
 ):
     # Filter contigs down as specified
     contigs = pd.read_table(
@@ -76,9 +78,9 @@ def random_variants(
             if not record.is_sv or record.var_subtype != "DEL":
                 continue
             event_length = int(record.sv_end) - record.POS
-            variants += generate_n_variants(contigs, event_length, 1, gaps)
+            variants += generate_n_variants(contigs, event_length, 1, gaps, flank=flank)
     else:
-        variants = generate_n_variants(contigs, size, n, gaps)
+        variants = generate_n_variants(contigs, size, n, gaps, flank=flank)
 
     # Sort variants in reference order (using linear coordinate)
     variants.sort(key=itemgetter(3))

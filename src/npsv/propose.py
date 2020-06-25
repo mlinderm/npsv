@@ -113,7 +113,7 @@ def propose_variants(args, input_vcf: str, output_file):
 
         
 def refine_variants(args, input_vcf: str, output_file):
-     """Identify the "best" representation for a variant
+    """Identify the "best" representation for a variant
 
     Updates the genotypes for "original" variant with more similar alternate representation. Note that the 
     resulting VCF file is not in sorted order.
@@ -148,7 +148,6 @@ def refine_variants(args, input_vcf: str, output_file):
     alternate_records = {}
 
     for record in vcf_reader:
-        assert record.ID, "All variants must have a unique ID"
         if ORIGINAL_KEY not in record.INFO:
             assert record.ID not in original_records, "Duplicate original variants"
             original_records[record.ID] = record
