@@ -114,19 +114,29 @@ bool AlignmentPair::Concordant() const {
 int32_t AlignmentPair::InsertSize() const {
   pyassert(first_->Position() <= second_->Position(),
            "First and second in sorted order");
-  return second_->Position() + second_->Length() - first_->Position();
+  return second_->PositionWithSClips() + second_->Length() -
+         first_->PositionWithSClips();
 }
 
 std::ostream& operator<<(std::ostream& os, const AlignmentPair& pair) {
   return (os << *(pair.first_) << *(pair.second_) << pair.score_ << std::endl);
 }
 
-void Fragment::SetSecond(const sl::BamRecord& read) {
-  pyassert(!first_.isEmpty(),
-           "Can't add second read to fragment if first not defined");
-  pyassert(first_.PairedFlag() && read.PairedFlag(),
-           "To create fragment reads must be paired");
-  second_ = read;
+Fragment::Fragment(const sl::BamRecord& read)
+    : total_log_prob_(std::numeric_limits<score_type>::lowest()) {
+  SetRead(read);
+}
+
+void Fragment::SetRead(const sl::BamRecord& read) {
+  if (read.FirstFlag()) {
+    pyassert(first_.isEmpty(),
+             "First read in pair already present in fragment");
+    first_ = read;
+  } else {
+    pyassert(second_.isEmpty(),
+             "Second read in pair already present in fragment");
+    second_ = read;
+  }
 }
 
 void Fragment::SetBestPair(const InsertSizeDistribution& insert_size_dist) {
@@ -141,6 +151,15 @@ void Fragment::SetBestPair(const InsertSizeDistribution& insert_size_dist) {
   }
 }
 
+sl::GenomicRegion Fragment::MateQueryRegion() const {
+  if (HasFirst() && first_.MateMappedFlag()) {
+    return sl::GenomicRegion(first_.MateChrID(), first_.MatePosition(), first_.MatePosition());
+  } else if (HasSecond() && second_.MateMappedFlag()) {
+    return sl::GenomicRegion(second_.MateChrID(), second_.MatePosition(), second_.MatePosition());
+  } else
+    return sl::GenomicRegion();
+}
+
 void AlleleAlignments::Initialize(const sl::UnalignedSequence& sequence) {
   pyassert(!IsInitialized(), "BWA should not previously have been initialized");
   sequence_ = sequence;
@@ -153,20 +172,26 @@ void AlleleAlignments::Align(const sl::BamRecord& read,
                                            std::forward_as_tuple(read.Qname()),
                                            std::forward_as_tuple(read));
   auto& fragment = emplace_result.first->second;
-  if (emplace_result.second) {
-    // A new fragment
+  if (!emplace_result.second) {
+    // An existing fragment
+    if ((read.FirstFlag() && fragment.HasFirst()) ||
+        (!read.FirstFlag() && fragment.HasSecond())) {
+      // We already have both reads in this fragment
+      return;
+    }
+    fragment.SetRead(read);
+  }
+
+  if (read.FirstFlag()) {
+    pyassert(fragment.HasFirst(), "First read in pair is not defined");
     bwa_.AlignSequence(read.Sequence(), read.Qname(),
                        fragment.first_alignments_, false, 0.9, 10);
     ScoreAlignments(fragment.first_, fragment.first_alignments_);
   } else {
-    // An existing fragment
-    fragment.SetSecond(read);
-
+    pyassert(fragment.HasSecond(), "Second read in pair is not defined");
     bwa_.AlignSequence(read.Sequence(), read.Qname(),
                        fragment.second_alignments_, false, 0.9, 10);
     ScoreAlignments(fragment.second_, fragment.second_alignments_);
-
-    fragment.SetBestPair(insert_size_dist);
   }
 }
 
@@ -260,6 +285,8 @@ Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint,
       allele_(allele),
       kind_(OverlapKind::None),
       quality_score_(0) {
+  
+  // TODO: Handle fragments with just a single read?
   const AlignmentPair& best_pair(fragment_->BestPair());
   if (!best_pair.Valid()) {
     // Use default alignment of "None"
@@ -279,7 +306,7 @@ Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint,
     // Read could straddle...
     sl::GenomicRegion fragment_region(
         first_region.chr, std::min(first_region.pos1, second_region.pos1),
-        std::max(first_region.pos1, second_region.pos2));
+        std::max(first_region.pos2, second_region.pos2));
     if (fragment_region.GetOverlap(*breakpoint_) ==
         GenomicRegionOverlap::ContainsArg) {
       kind_ = OverlapKind::FragmentContains;
@@ -407,8 +434,7 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
   sl::BamRecord read;
   while (reader.GetNextRecord(read)) {
-    if (read.DuplicateFlag() || read.SecondaryFlag() ||
-        read.SupplementaryFlag())
+    if (read.DuplicateFlag() || read.SecondaryFlag() || read.SupplementaryFlag())
       continue;  // Skip duplicate or secondary/supplemental alignments
 
     // Realign read to ref. and/or alt. alleles
@@ -424,6 +450,28 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
              "Considering alignments for same underlying fragment");
     auto& ref_fragment = ref_iter->second;
     auto& alt_fragment = alt_iter->second;
+    
+    // If un-paired, try to find and align the mate
+    if (!ref_fragment.IsPaired()) {
+      pyassert(!alt_fragment.IsPaired(), "Ref and Alt fragments should have the same pairing status");
+      
+      auto query_region = ref_fragment.MateQueryRegion();
+      reader.SetRegion(query_region);
+      while (reader.GetNextRecord(read)) {
+        if (read.DuplicateFlag() || read.SecondaryFlag() || read.SupplementaryFlag())
+          continue;  // Skip duplicate or secondary/supplemental alignments
+        if (read.Qname() == ref_iter->first) {
+          // We found another primary read
+          Realign(read);
+          pyassert(ref_fragment.IsPaired() && alt_fragment.IsPaired(), "After realignment both ref and alt should be paired");
+        }
+      }
+    }
+
+
+    // Find the best pairing among all of the alignments
+    ref_fragment.SetBestPair(insert_size_dist_);
+    alt_fragment.SetBestPair(insert_size_dist_);
 
     // Compute total probability across all alignments for this fragment (to
     // compute posterior)
@@ -452,24 +500,50 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
       Overlap max_ref = std::max(rl_ov, rr_ov);
       Overlap max_alt = std::max(al_ov, ar_ov);
 
+      // if (ref_iter->first == "HISEQ1:18:H8VC6ADXX:2:2213:9314:11990") {
+      //   {
+      //     sl::BamWriter writer(sl::SAM);
+      //     writer.SetHeader(ref_.Header());
+      //     writer.Open("/dev/stderr");
+      //     writer.WriteRecord(*max_ref.fragment_->BestPair().first_);
+      //     writer.WriteRecord(*max_ref.fragment_->BestPair().second_);
+      //     writer.Close();
+      //   }
+      //   std::cerr << max_ref.fragment_->BestPair().score_ << " " <<
+      //   max_ref.QualityScore() << " " << total_log_prob << std::endl;
+      //   {
+      //     sl::BamWriter writer(sl::SAM);
+      //     writer.SetHeader(alt_.Header());
+      //     writer.Open("/dev/stderr");
+      //     writer.WriteRecord(*max_alt.fragment_->BestPair().first_);
+      //     writer.WriteRecord(*max_alt.fragment_->BestPair().second_);
+      //     writer.Close();
+      //   }
+      //   std::cerr << max_alt.fragment_->BestPair().score_ << " " <<
+      //   max_alt.QualityScore() << " " << total_log_prob << std::endl;
+      // //std::cerr << max_ref.fragment_->BestPair() << std::endl;
+      // //std::cerr << max_alt.fragment_->BestPair() << std::endl;
+      // }
+
       auto delta = max_alt.QualityScore() - max_ref.QualityScore();
       if (max_alt.HasOverlap() && delta > min_score_delta) {
-        if (al_ov.QualityScore() - max_ref.QualityScore() > min_score_delta)
+        if (al_ov.HasOverlap())
           al_reads += 1;
-        if (ar_ov.QualityScore() - max_ref.QualityScore() > min_score_delta)
+        if (ar_ov.HasOverlap())
           ar_reads += 1;
 
         if (overlap_writer.IsOpen()) max_alt.PushTaggedReads(overlap_reads);
       } else if (max_ref.HasOverlap() && delta < -min_score_delta) {
-        if (rl_ov.QualityScore() - max_alt.QualityScore() > min_score_delta)
+        if (rl_ov.HasOverlap())
           rl_reads += 1;
-        if (rr_ov.QualityScore() - max_alt.QualityScore() > min_score_delta)
+        if (rr_ov.HasOverlap())
           rr_reads += 1;
 
         if (overlap_writer.IsOpen()) max_ref.PushTaggedReads(overlap_reads);
       } else {
         // Everything else is an ambiguous overlap
-        // TODO: Write out ambiguous alignments to debugging BAM file, record overlap for ambiguous alignments
+        // TODO: Write out ambiguous alignments to debugging BAM file, record
+        // overlap for ambiguous alignments
         amb_reads += 1;
       }
     }
@@ -494,25 +568,6 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
   results["ar_reads"] = ar_reads;
   results["amb_reads"] = amb_reads;
   return results;
-}
-
-std::vector<std::pair<int, int> > AlternateVariantLocations(const std::string& ref_sequence, const std::string& allele_sequence) {
-  sl::BWAWrapper bwa;
-  bwa.ConstructIndex({sl::UnalignedSequence("ref", ref_sequence)});
-
-  // sl::BamWriter writer(sl::SAM);
-  // writer.SetHeader(bwa.HeaderFromIndex());
-  // writer.Open("/dev/stderr");
-
-  sl::BamRecordVector alignments;
-  bwa.AlignSequence(allele_sequence, "allele", alignments, false, 0, 10);
-  
-  std::vector<std::pair<int, int> > alt_regions;
-  for (const auto & alignment : alignments) {
-    alt_regions.emplace_back(alignment.Position(), alignment.PositionEnd());
-  }
-  //writer.Close();
-  return alt_regions;  
 }
 
 namespace test {

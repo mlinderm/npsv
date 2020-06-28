@@ -75,17 +75,20 @@ class Fragment {
  public:
   typedef AlignmentPair::score_type score_type;
 
-  Fragment(const sl::BamRecord& read)
-      : first_(read),
-        total_log_prob_(std::numeric_limits<score_type>::lowest()) {}
+  Fragment(const sl::BamRecord& read);
+
+  bool HasFirst() const { return !first_.isEmpty(); }
+  bool HasSecond() const { return !second_.isEmpty(); }
+  bool IsPaired() const { return HasFirst() && HasSecond(); }
 
   bool HasBestPair() const { return best_pair_.Valid(); }
   const AlignmentPair& BestPair() const { return best_pair_; }
   score_type BestPairScore() const { return best_pair_.score_; }
 
  private:
-  void SetSecond(const sl::BamRecord& read);
+  void SetRead(const sl::BamRecord& read);
   void SetBestPair(const InsertSizeDistribution&);
+  sl::GenomicRegion MateQueryRegion() const;
 
   sl::BamRecord first_;
   sl::BamRecordVector first_alignments_;
@@ -232,9 +235,6 @@ class Realigner {
   InsertSizeDistribution insert_size_dist_;
   AlleleAlignments ref_, alt_;
 };
-
-std::vector<std::pair<int, int> > AlternateVariantLocations(const std::string& ref_sequence, const std::string& allele_sequence);
-
 
 namespace test {
 std::vector<AlleleAlignments::score_type> TestScoreAlignment(
