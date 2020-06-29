@@ -169,8 +169,11 @@ def refine_variants(args, input_vcf: str, output_file):
 
             # Identify best alternate representation and genotype for each sample
             for i, call in enumerate(record.samples):
-                min_dist = min(call.data.DM[1:])
                 min_call = vcf.model._Call(record, call.sample, AltCallData(GT=call.data.GT, DM=call.data.DM, OGT=None, ODM=None))
+                if min_call.data.DM:
+                    min_dist = min(call.data.DM[1:])
+                else:
+                    break
 
                 # Identify other representations to see if we want to overwrite the genotype
                 for alternate_record in alternate_records[id]:
