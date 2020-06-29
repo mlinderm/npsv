@@ -378,7 +378,7 @@ def main():
         logging.info("Determining genotypes (output in %s)", gt_vcf_file.name)
         genotyping_args = argparse.Namespace(**vars(args))
         genotype_vcf(
-            genotyping_args, args.input, sim_tsv_path, real_tsv_file.name, gt_vcf_file
+            genotyping_args, args.input, sim_tsv_path, real_tsv_file.name, gt_vcf_file, samples=[sample.name]
         )
 
 if __name__ == "__main__":
