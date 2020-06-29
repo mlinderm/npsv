@@ -19,7 +19,7 @@ from scipy.stats import binom, chi2, zscore
 from sklearn.metrics import accuracy_score
 from scipy.special import comb
 
-from .variant import variant_descriptor
+from .variant import variant_descriptor, overwrite_reader_samples
 from .feature_extraction import Features
 
 # Suppress the future warnings
@@ -266,6 +266,7 @@ def genotype_vcf(
     input_real: str,
     output_file=sys.stdout,
     remove_z=5.0,
+    samples=[],
 ):
     """Write new VCF with NSPV-determined genotypes
 
@@ -295,8 +296,10 @@ def genotype_vcf(
    
     if sim_data.shape[0] == 0:
         # No data is available, copy input to output and exit
-        vcf_reader = vcf.Reader(filename=input_vcf) 
-        vcf.Writer(output_file, vcf_reader, lineterminator="")
+        vcf_reader = vcf.Reader(filename=input_vcf)
+        if samples is not None:
+            overwrite_reader_samples(vcf_reader, samples)
+        vcf.Writer(output_file, vcf_reader)
         return
    
     add_derived_features(sim_data)
@@ -381,7 +384,8 @@ def genotype_vcf(
     # If original VCF is sites only...
     if len(vcf_reader._column_headers) < 9:
         vcf_reader._column_headers = VCF_COLUMN_HEADERS
-    vcf_reader.samples = list(real_data[SAMPLE_COL].unique())  # Set sample names
+    # Set sample names
+    overwrite_reader_samples(vcf_reader, list(set(real_data[SAMPLE_COL]) | set(samples)))
 
     # Write new VCF entries, building local classifiers as needed
     vcf_writer = vcf.Writer(output_file, vcf_reader, lineterminator="")

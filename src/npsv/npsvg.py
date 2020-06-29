@@ -163,6 +163,7 @@ def main():
         default=sys.stdout,
         help="Output file",
     )
+    parser_genotype.add_argument("--sample", action="append", default=[], help="Force sample names when no calls in the file")
     npsv_options.add_genotyping_options(parser_genotype)
 
     # Plotting
@@ -311,7 +312,7 @@ def main():
         extract(args, args.input, args.bam, out_file=args.output, ac=args.ac)
     elif args.command == "genotype":
         from .genotyper import genotype_vcf
-        genotype_vcf(args, args.input, args.sim, args.real, args.output)
+        genotype_vcf(args, args.input, args.sim, args.real, args.output, samples=args.samples)
     elif args.command == "random":
         from .random_variants import random_variants
 

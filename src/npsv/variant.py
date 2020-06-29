@@ -48,6 +48,11 @@ def write_record_to_indexed_vcf(record, vcf_reader, vcf_path):
     return pysam.tabix_index(vcf_path, preset="vcf", force=True)
 
 
+def overwrite_reader_samples(vcf_reader: vcf.Reader, samples):
+    vcf_reader.samples = samples
+    vcf_reader._sample_indexes = dict([(x,i) for (i,x) in enumerate(vcf_reader.samples)])
+
+
 class Variant(object):
     def __init__(self, record):
         self.record = record
