@@ -46,7 +46,7 @@ def count_alleles_with_npsva(
 
         count_alignment_args = {
             "rr_region": f"{ref_contig}:{args.flank + length}-{args.flank + length + 1}",
-            "region": [region],
+            "region": region,
         }
 
         if alt_length > 1:

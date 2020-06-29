@@ -153,9 +153,9 @@ void Fragment::SetBestPair(const InsertSizeDistribution& insert_size_dist) {
 
 sl::GenomicRegion Fragment::MateQueryRegion() const {
   if (HasFirst() && first_.MateMappedFlag()) {
-    return sl::GenomicRegion(first_.MateChrID(), first_.MatePosition(), first_.MatePosition());
+    return sl::GenomicRegion(first_.MateChrID(), first_.MatePosition(), first_.MatePosition()+1);
   } else if (HasSecond() && second_.MateMappedFlag()) {
-    return sl::GenomicRegion(second_.MateChrID(), second_.MatePosition(), second_.MatePosition());
+    return sl::GenomicRegion(second_.MateChrID(), second_.MatePosition(), second_.MatePosition()+1);
   } else
     return sl::GenomicRegion();
 }
@@ -422,14 +422,11 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
   }
 
   // Subset the reader by the specified regions
+  sl::GenomicRegion reader_region;
   if (kwargs && kwargs.contains("region")) {
-    // Restrict input BAM to specific regions
-    sl::GRC reader_regions;
-    for (auto& region : py::cast<py::list>(kwargs["region"])) {
-      reader_regions.add(
-          sl::GenomicRegion(py::cast<std::string>(region), reader.Header()));
-    }
-    reader.SetMultipleRegions(reader_regions);
+    // Restrict input BAM to specific region
+    reader_region = sl::GenomicRegion(py::cast<std::string>(kwargs["region"]), reader.Header());
+    reader.SetRegion(reader_region);
   }
 
   sl::BamRecord read;
@@ -451,23 +448,34 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
     auto& ref_fragment = ref_iter->second;
     auto& alt_fragment = alt_iter->second;
     
-    // If un-paired, try to find and align the mate
-    if (!ref_fragment.IsPaired()) {
-      pyassert(!alt_fragment.IsPaired(), "Ref and Alt fragments should have the same pairing status");
+    // // If un-paired, try to find and align the mate
+    // if (!ref_fragment.IsPaired()) {
+    //   pyassert(!alt_fragment.IsPaired(), "Ref and Alt fragments should have the same pairing status");
       
-      auto query_region = ref_fragment.MateQueryRegion();
-      reader.SetRegion(query_region);
-      while (reader.GetNextRecord(read)) {
-        if (read.DuplicateFlag() || read.SecondaryFlag() || read.SupplementaryFlag())
-          continue;  // Skip duplicate or secondary/supplemental alignments
-        if (read.Qname() == ref_iter->first) {
-          // We found another primary read
-          Realign(read);
-          pyassert(ref_fragment.IsPaired() && alt_fragment.IsPaired(), "After realignment both ref and alt should be paired");
-        }
-      }
-    }
+    //   auto query_region = ref_fragment.MateQueryRegion();
+    //   if (!query_region.IsEmpty() && (reader_region.IsEmpty() || reader_region.GetOverlap(query_region) == GenomicRegionOverlap::NoOverlap)) {
+    //     // Only look for mate in regions we haven't already explored
+    //     reader.SetRegion(query_region);
+    //     while (reader.GetNextRecord(read)) {
+    //       if (read.SecondaryFlag() || read.SupplementaryFlag())
+    //         continue;  // Skip secondary/supplemental alignments
+    //       if (read.Qname() == ref_iter->first) {
+    //         // Is this the mate we are looking for?
+    //         if ((ref_fragment.HasFirst() && read.FirstFlag()) || (ref_fragment.HasSecond() && !read.FirstFlag())) {
+    //           continue;
+    //         }
+    //         if (read.DuplicateFlag()) {
+    //           break;  // Mate is a duplicate
+    //         }
 
+    //         // We found the other read in the pair
+    //         Realign(read);
+    //         pyassert(ref_fragment.IsPaired() && alt_fragment.IsPaired(), "After realignment both ref and alt should be paired");
+    //         break;
+    //       }
+    //     }
+    //   }
+    // }
 
     // Find the best pairing among all of the alignments
     ref_fragment.SetBestPair(insert_size_dist_);
@@ -499,31 +507,6 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
     if (any_overlap) {
       Overlap max_ref = std::max(rl_ov, rr_ov);
       Overlap max_alt = std::max(al_ov, ar_ov);
-
-      // if (ref_iter->first == "HISEQ1:18:H8VC6ADXX:2:2213:9314:11990") {
-      //   {
-      //     sl::BamWriter writer(sl::SAM);
-      //     writer.SetHeader(ref_.Header());
-      //     writer.Open("/dev/stderr");
-      //     writer.WriteRecord(*max_ref.fragment_->BestPair().first_);
-      //     writer.WriteRecord(*max_ref.fragment_->BestPair().second_);
-      //     writer.Close();
-      //   }
-      //   std::cerr << max_ref.fragment_->BestPair().score_ << " " <<
-      //   max_ref.QualityScore() << " " << total_log_prob << std::endl;
-      //   {
-      //     sl::BamWriter writer(sl::SAM);
-      //     writer.SetHeader(alt_.Header());
-      //     writer.Open("/dev/stderr");
-      //     writer.WriteRecord(*max_alt.fragment_->BestPair().first_);
-      //     writer.WriteRecord(*max_alt.fragment_->BestPair().second_);
-      //     writer.Close();
-      //   }
-      //   std::cerr << max_alt.fragment_->BestPair().score_ << " " <<
-      //   max_alt.QualityScore() << " " << total_log_prob << std::endl;
-      // //std::cerr << max_ref.fragment_->BestPair() << std::endl;
-      // //std::cerr << max_alt.fragment_->BestPair() << std::endl;
-      // }
 
       auto delta = max_alt.QualityScore() - max_ref.QualityScore();
       if (max_alt.HasOverlap() && delta > min_score_delta) {
