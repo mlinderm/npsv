@@ -81,26 +81,6 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
     return parser
 
 
-def add_paragraph_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """Add arguments needed by paragraph to parser
-    
-    Args:
-        parser (argparse.ArgumentParser): Parser to extend to additional arguments
-    
-    Returns:
-        argparse.ArgumentParser: Parser passed as argument
-    """
-    parser.add_argument(
-        "--vcf2paragraph",
-        default="vcf2paragraph.py",
-        type=str,
-        help="Path to vcf2paragraph.py",
-    )
-    parser.add_argument("--grmpy", default="grmpy", type=str, help="Path to grmpy")
-    parser.add_argument("--paragraph", default="paragraph", type=str, help="Path to paragraph")
-    return parser
-
-
 def add_data_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add arguments needed by simulation tools to parser
     

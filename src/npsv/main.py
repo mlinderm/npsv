@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import argparse, io, logging, os, subprocess, shutil, sys, tempfile
-#import multiprocessing
-#from multiprocessing_logging import install_mp_handler
 from tqdm import tqdm
 from shlex import quote
 import pysam
@@ -9,8 +7,6 @@ import vcf
 from npsv.npsv_options import *
 from npsv.variant import variant_descriptor, write_record_to_indexed_vcf
 from npsv.feature_extraction import (
-    convert_vcf_to_graph,
-    run_paragraph_on_vcf,
     extract,
     header,
     Variant,
@@ -19,6 +15,7 @@ from npsv.random_variants import random_variants
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
 import ray
+
 
 def make_argument_parser():
     parser = argparse.ArgumentParser(
@@ -74,7 +71,6 @@ def make_argument_parser():
         dest="loglevel",
         const=logging.INFO,
     )
-    
 
     # Synthesizer options
     synth_options = parser.add_argument_group()
@@ -99,9 +95,6 @@ def make_argument_parser():
     )
 
     # Options used by "sub tools"
-    paragraph_options = parser.add_argument_group()
-    add_paragraph_options(paragraph_options)
-
     data_options = parser.add_argument_group()
     add_data_options(data_options)
 
@@ -116,6 +109,7 @@ def make_argument_parser():
 
     return parser
 
+
 def art_read_length(read_length, profile):
     """Make sure read length is compatible ART"""
     if profile in ("HS10", "HS20"):
@@ -124,6 +118,7 @@ def art_read_length(read_length, profile):
         return min(read_length, 150)
     else:
         return read_length
+
 
 def check_if_bwa_index_loaded(reference: str) -> bool:
     """Check if bwa index is loaded in shared memory
@@ -143,14 +138,16 @@ def check_if_bwa_index_loaded(reference: str) -> bool:
             return True
     return False
 
+
 def ray_iterator(obj_ids):
     while obj_ids:
         done, obj_ids = ray.wait(obj_ids)
         yield ray.get(done[0])
 
+
 @ray.remote
 def simulate_deletion(args, sample, record, variant_vcf_path, description):
-    #logging.info(f"Extracting features for {description}")
+    # logging.info(f"Extracting features for {description}")
     out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
 
     # In correctly formatted VCF, POS is first base of event when zero-indexed, while
@@ -208,8 +205,8 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
-            #logging.info(f"Simulating reads to generate {synthetic_bam_path}")
-            
+            # logging.info(f"Simulating reads to generate {synthetic_bam_path}")
+
             # Check if shared reference is available
             shared_ref_arg = ""
             if check_if_bwa_index_loaded(args.reference):
@@ -231,7 +228,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                 -z {z} \
                 -n {sample.name} \
                 {variant_vcf_path} {synthetic_bam_path}"
-            
+
             try:
                 synth_result = subprocess.run(
                     synth_commandline, shell=True, check=True, stderr=subprocess.PIPE,
@@ -240,11 +237,12 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                 print(synth_commandline, file=sys.stderr)
                 print(err.stderr, file=sys.stderr)
                 raise err
-            
+
             if not os.path.exists(synthetic_bam_path):
                 print(synth_result.stderr, file=sys.stderr)
-            assert os.path.exists(synthetic_bam_path), "Synthesis script didn't create BAM file"
-
+            assert os.path.exists(
+                synthetic_bam_path
+            ), "Synthesis script didn't create BAM file"
 
         for i in range(1, args.n + 1):
             try:
@@ -267,7 +265,9 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     single_sample_bam_file.name, "-b"
                 )
 
-                logging.debug("Extracting features from %s", single_sample_bam_file.name)
+                logging.debug(
+                    "Extracting features from %s", single_sample_bam_file.name
+                )
                 extract(
                     synth_extract_args,
                     variant_vcf_path,
@@ -293,7 +293,9 @@ def main():
 
     logging.basicConfig(level=args.loglevel)
 
-    logging.info(f"Creating {args.output} output and {args.tempdir} temporary directories if they don't exist")
+    logging.info(
+        f"Creating {args.output} output and {args.tempdir} temporary directories if they don't exist"
+    )
     os.makedirs(args.output, exist_ok=True)
     os.makedirs(args.tempdir, exist_ok=True)
 
@@ -346,7 +348,11 @@ def main():
             # Variant file already exists, no need to recreate
             variant_vcf_path += ".gz"
 
-        record_results.append(simulate_deletion.remote(args, sample, record, variant_vcf_path, description))
+        record_results.append(
+            simulate_deletion.remote(
+                args, sample, record, variant_vcf_path, description
+            )
+        )
 
     # Concatenate output files to create final result
     sim_tsv_path = os.path.join(args.output, args.prefix + ".sim.tsv")
@@ -354,7 +360,11 @@ def main():
     with open(sim_tsv_path, "w") as file:
         header(out_file=file, ac=True)
     with open(sim_tsv_path, "ab") as sink:
-        for result in tqdm(ray_iterator(record_results), total=len(record_results), desc="Simulating variants"):
+        for result in tqdm(
+            ray_iterator(record_results),
+            total=len(record_results),
+            desc="Simulating variants",
+        ):
             with open(result, "rb") as source:
                 shutil.copyfileobj(source, sink)
 
@@ -378,8 +388,14 @@ def main():
         logging.info("Determining genotypes (output in %s)", gt_vcf_file.name)
         genotyping_args = argparse.Namespace(**vars(args))
         genotype_vcf(
-            genotyping_args, args.input, sim_tsv_path, real_tsv_file.name, gt_vcf_file, samples=[sample.name]
+            genotyping_args,
+            args.input,
+            sim_tsv_path,
+            real_tsv_file.name,
+            gt_vcf_file,
+            samples=[sample.name],
         )
+
 
 if __name__ == "__main__":
     main()
