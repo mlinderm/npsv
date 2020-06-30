@@ -3,7 +3,7 @@ import numpy as np
 from scipy.signal import peak_prominences, find_peaks
 import vcf
 import pysam
-from .variant import Variant
+from .variant import Variant, variant_descriptor
 
 PEAK_FINDING_FLANK = 5
 ORIGINAL_KEY = "ORIGINAL"
@@ -54,7 +54,13 @@ def propose_variants(args, input_vcf: str, output_file):
         vcf_writer.write_record(variant.record)
 
         # TODO? Require certain overlap?
-        repeats = simple_repeats_bed.fetch(region=variant.region_string(), parser=pysam.asTuple()) if simple_repeats_bed else []
+        repeats = (
+            simple_repeats_bed.fetch(
+                region=variant.region_string(), parser=pysam.asTuple()
+            )
+            if simple_repeats_bed
+            else []
+        )
         if not repeats:
             continue
 
@@ -89,7 +95,10 @@ def propose_variants(args, input_vcf: str, output_file):
             scores = []
             for i in range(0, len(ref_seq) - len(consensus_seq)):
                 matches = sum(
-                    c1 == c2 for c1, c2 in zip(consensus_seq, ref_seq[i : i + len(consensus_seq)])
+                    c1 == c2
+                    for c1, c2 in zip(
+                        consensus_seq, ref_seq[i : i + len(consensus_seq)]
+                    )
                 )
                 scores.append(matches)
 
@@ -145,8 +154,14 @@ def refine_variants(args, input_vcf: str, output_file):
     # Setup VCF reader and writer...
     vcf_reader = vcf.Reader(filename=input_vcf)
     # Add new format fields
+    vcf_reader.formats["CL"] = vcf.parser._Format(
+        "CL", "1", "String", "Call location used for genotype",
+    )
     vcf_reader.formats["OGT"] = vcf.parser._Format(
         "OGT", "1", "String", "Genotype for the original variant",
+    )
+    vcf_reader.formats["OPL"] = vcf.parser._Format(
+        "OPL", "G", "Integer", "Genotype likelihood for each genotype",
     )
     vcf_reader.formats["ODM"] = vcf.parser._Format(
         "ODM", "G", "Float", "Original Mahalanobis distance for each genotype",
@@ -154,7 +169,9 @@ def refine_variants(args, input_vcf: str, output_file):
     vcf_writer = vcf.Writer(args.output, vcf_reader)
 
     # TODO: Include data from original format
-    AltCallData = collections.namedtuple("AltCallData", ["GT", "DM", "OGT", "ODM"])
+    AltCallData = collections.namedtuple(
+        "AltCallData", ["GT", "PL", "DM", "CL", "OGT", "OPL", "ODM"]
+    )
 
     original_records = {}
     alternate_records = {}
@@ -184,7 +201,15 @@ def refine_variants(args, input_vcf: str, output_file):
                 min_call = vcf.model._Call(
                     record,
                     call.sample,
-                    AltCallData(GT=call.data.GT, DM=call.data.DM, OGT=None, ODM=None),
+                    AltCallData(
+                        GT=call.data.GT,
+                        PL=call.data.PL,
+                        DM=call.data.DM,
+                        CL=None,
+                        OGT=None,
+                        OPL=None,
+                        ODM=None,
+                    ),
                 )
                 if min_call.data.DM:
                     min_dist = min(call.data.DM[1:])
@@ -206,8 +231,11 @@ def refine_variants(args, input_vcf: str, output_file):
                         min_dist = min_alt_dist
                         min_call_data = AltCallData(
                             GT=alternate_call.data.GT,
+                            PL=alternate_call.data.PL,
                             DM=alternate_call.data.DM,
+                            CL=variant_descriptor(alternate_record),
                             OGT=call.data.GT,
+                            OPL=call.data.PL,
                             ODM=call.data.DM,
                         )
                         min_call = vcf.model._Call(record, call.sample, min_call_data)
