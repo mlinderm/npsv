@@ -69,10 +69,15 @@ MAHAL_FEATURES = [
     "INSERT_LOWER",
     "INSERT_UPPER",
     "DHFFC",
-    "REF_READ_REL",
+    #"REF_READ_REL",
     "ALT_READ_REL",
-    "REF_READ_REL",
+    #"REF_READ_REL",
     "ALT_SPAN_REL",
+    # "REF_SPLIT", 
+    # "ALT_SPLIT",
+    # "REF_SPAN",
+    # "ALT_SPAN",
+    # "COVG",
 ]
 
 RF_FEATURES = [

@@ -160,7 +160,7 @@ def main():
         help="Output file",
     )
     parser_genotype.add_argument(
-        "--sample",
+        "--samples",
         action="append",
         default=[],
         help="Force sample names when no calls in the file",
