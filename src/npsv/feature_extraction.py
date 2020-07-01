@@ -15,13 +15,15 @@ from npsv import npsva
 ZSCORE_THRESHOLD = 1.5
 
 def count_alleles_with_npsva(
-    variant,
     args,
+    variant,
     input_bam,
     sample: Sample,
     input_fasta=None,
     ref_contig="ref",
     alt_contig="alt",
+    count_straddle=True,
+    insert_hist=True,
     **kwargs,
 ):
     try:
@@ -54,13 +56,8 @@ def count_alleles_with_npsva(
                 "ar_region"
             ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
 
-        logging.debug(
-            "Counting reads for %s and %s alleles in %s",
-            ref_contig,
-            alt_contig,
-            fasta_path,
-        )
-        insert_size_density_dict = sample.insert_size_density().as_dict()
+        # Use or ignore actual density data (e.g. if simulated data)
+        insert_size_density_dict = sample.insert_size_density().as_dict() if insert_hist else {}
         realigner = npsva.Realigner(
             fasta_path,
             sample.mean_insert_size,
@@ -68,18 +65,12 @@ def count_alleles_with_npsva(
             insert_size_density_dict,
         )
 
-        logging.debug(
-            "Counting reads at ref. breakpoints (%s, %s) and alt. breakpoints (%s, %s)",
-            rl_breakpoint,
-            count_alignment_args["rr_region"],
-            al_breakpoint,
-            count_alignment_args.get("ar_region", None),
-        )
         counts = realigner.count_alignments(
             input_bam,
             rl_breakpoint,
             al_breakpoint,
             **count_alignment_args,
+            count_straddle=count_straddle,
             **kwargs,
         )
 
@@ -254,6 +245,7 @@ def extract(
     input_fasta: str = None,
     ref_contig: str = "ref",
     alt_contig: str = "alt",
+    insert_hist: bool = True,
 ):
     """Extract and print deletion SV features for a VCF and BAM file
 
@@ -296,8 +288,6 @@ def extract(
     else:
         raise ValueError("Library distribution must be provided")
 
-    # For efficiency we run paragraph on the entire VCF in one run (to amortize cost of loading the reference genome)
-    # graph_alignments = run_paragraph_on_vcf(args, input_vcf, input_bam, sample)
 
     # Extract features for all SVs
     bam_reader = pysam.AlignmentFile(input_bam, mode="rb")  # pylint: disable=no-member
@@ -337,13 +327,15 @@ def extract(
             logging.warning("Unsupported variant type for %s. Skipping", record.ID)
             continue
         ref_count, alt_count, *_ = count_alleles_with_npsva(
-            variant,
             args,
+            variant,
             input_bam,
             sample,
             input_fasta=input_fasta,
             ref_contig=ref_contig,
             alt_contig=alt_contig,
+            count_straddle=args.count_straddle,
+            insert_hist=insert_hist,
         )
         # ref_count, alt_count, *_ = variant.count_alleles_with_svviz2(args, input_bam)
         features.read_counts = (ref_count, alt_count)

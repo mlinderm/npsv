@@ -98,6 +98,14 @@ def main():
 
     feature_options.add_argument("--ac", help="Set allele count", type=int)
 
+    feature_options.add_argument(
+        "--use-insert-param",
+        dest="insert_hist",
+        default=True,
+        action="store_false",
+        help="Use parameterized distribution for insert size",
+    )
+
     # Random variant generation
     parser_random = subparsers.add_parser("random", help="Extract features")
     parser_random.add_argument(
@@ -300,7 +308,7 @@ def main():
     if args.command == "features":
         from .feature_extraction import extract
 
-        extract(args, args.input, args.bam, out_file=args.output, ac=args.ac)
+        extract(args, args.input, args.bam, out_file=args.output, ac=args.ac, insert_hist=args.insert_hist)
     elif args.command == "genotype":
         from .genotyper import genotype_vcf
 

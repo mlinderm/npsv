@@ -153,9 +153,11 @@ void Fragment::SetBestPair(const InsertSizeDistribution& insert_size_dist) {
 
 sl::GenomicRegion Fragment::MateQueryRegion() const {
   if (HasFirst() && first_.MateMappedFlag()) {
-    return sl::GenomicRegion(first_.MateChrID(), first_.MatePosition(), first_.MatePosition());
+    return sl::GenomicRegion(first_.MateChrID(), first_.MatePosition(),
+                             first_.MatePosition());
   } else if (HasSecond() && second_.MateMappedFlag()) {
-    return sl::GenomicRegion(second_.MateChrID(), second_.MatePosition(), second_.MatePosition());
+    return sl::GenomicRegion(second_.MateChrID(), second_.MatePosition(),
+                             second_.MatePosition());
   } else
     return sl::GenomicRegion();
 }
@@ -285,7 +287,6 @@ Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint,
       allele_(allele),
       kind_(OverlapKind::None),
       quality_score_(0) {
-  
   // TODO: Handle fragments with just a single read?
   const AlignmentPair& best_pair(fragment_->BestPair());
   if (!best_pair.Valid()) {
@@ -384,7 +385,7 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
   bool count_straddle = true;
   if (kwargs && kwargs.contains("count_straddle")) {
-    count_straddle = py::cast<Fragment::score_type>(kwargs["count_straddle"]);
+    count_straddle = py::cast<bool>(kwargs["count_straddle"]);
   }
 
   // Clear any previous aligned fragments
@@ -434,7 +435,8 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
   sl::BamRecord read;
   while (reader.GetNextRecord(read)) {
-    if (read.DuplicateFlag() || read.SecondaryFlag() || read.SupplementaryFlag())
+    if (read.DuplicateFlag() || read.SecondaryFlag() ||
+        read.SupplementaryFlag())
       continue;  // Skip duplicate or secondary/supplemental alignments
 
     // Realign read to ref. and/or alt. alleles
@@ -450,24 +452,26 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
              "Considering alignments for same underlying fragment");
     auto& ref_fragment = ref_iter->second;
     auto& alt_fragment = alt_iter->second;
-    
+
     // If un-paired, try to find and align the mate
     if (!ref_fragment.IsPaired()) {
-      pyassert(!alt_fragment.IsPaired(), "Ref and Alt fragments should have the same pairing status");
-      
+      pyassert(!alt_fragment.IsPaired(),
+               "Ref and Alt fragments should have the same pairing status");
+
       auto query_region = ref_fragment.MateQueryRegion();
       reader.SetRegion(query_region);
       while (reader.GetNextRecord(read)) {
-        if (read.DuplicateFlag() || read.SecondaryFlag() || read.SupplementaryFlag())
+        if (read.DuplicateFlag() || read.SecondaryFlag() ||
+            read.SupplementaryFlag())
           continue;  // Skip duplicate or secondary/supplemental alignments
         if (read.Qname() == ref_iter->first) {
           // We found another primary read
           Realign(read);
-          pyassert(ref_fragment.IsPaired() && alt_fragment.IsPaired(), "After realignment both ref and alt should be paired");
+          pyassert(ref_fragment.IsPaired() && alt_fragment.IsPaired(),
+                   "After realignment both ref and alt should be paired");
         }
       }
     }
-
 
     // Find the best pairing among all of the alignments
     ref_fragment.SetBestPair(insert_size_dist_);
@@ -480,18 +484,18 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
     // Determine overlap and scores for all breakpoints
     Overlap rl_ov(ref_fragment, rl, Overlap::OverlapAllele::RefLeft,
-                  total_log_prob);
+                  total_log_prob, count_straddle);
     Overlap al_ov(alt_fragment, al, Overlap::OverlapAllele::AltLeft,
-                  total_log_prob);
+                  total_log_prob, count_straddle);
 
     Overlap rr_ov, ar_ov;  // Optional breakpoints
     if (!rr.IsEmpty()) {
       rr_ov = {ref_fragment, rr, Overlap::OverlapAllele::RefRight,
-               total_log_prob};
+               total_log_prob, count_straddle};
     }
     if (!ar.IsEmpty()) {
       ar_ov = {alt_fragment, ar, Overlap::OverlapAllele::AltRight,
-               total_log_prob};
+               total_log_prob, count_straddle};
     }
 
     bool any_overlap = rl_ov.HasOverlap() || al_ov.HasOverlap() ||
@@ -527,17 +531,13 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
       auto delta = max_alt.QualityScore() - max_ref.QualityScore();
       if (max_alt.HasOverlap() && delta > min_score_delta) {
-        if (al_ov.HasOverlap())
-          al_reads += 1;
-        if (ar_ov.HasOverlap())
-          ar_reads += 1;
+        if (al_ov.HasOverlap()) al_reads += 1;
+        if (ar_ov.HasOverlap()) ar_reads += 1;
 
         if (overlap_writer.IsOpen()) max_alt.PushTaggedReads(overlap_reads);
       } else if (max_ref.HasOverlap() && delta < -min_score_delta) {
-        if (rl_ov.HasOverlap())
-          rl_reads += 1;
-        if (rr_ov.HasOverlap())
-          rr_reads += 1;
+        if (rl_ov.HasOverlap()) rl_reads += 1;
+        if (rr_ov.HasOverlap()) rr_reads += 1;
 
         if (overlap_writer.IsOpen()) max_ref.PushTaggedReads(overlap_reads);
       } else {

@@ -78,6 +78,13 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         type=int,
         help="Size of flanking regions for computing relative coverage to flanks",
     )
+    parser.add_argument(
+        "--no-straddle",
+        dest="count_straddle",
+        action="store_false",
+        default=True,
+        help="Don't count straddlers as realigned alleles",
+    )
     return parser
 
 

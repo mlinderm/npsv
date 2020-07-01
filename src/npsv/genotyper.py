@@ -275,6 +275,8 @@ def genotype_vcf(
         if samples is not None:
             overwrite_reader_samples(vcf_reader, samples)
         vcf.Writer(output_file, vcf_reader)
+        if not vcf_reader._reader.closed:
+            vcf_reader._reader.close()
         return
 
     add_derived_features(sim_data)

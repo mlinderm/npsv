@@ -278,6 +278,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     input_fasta=fasta_path,
                     ref_contig=ref_contig,
                     alt_contig=alt_contig,
+                    insert_hist=False, # Since synthetic data, use parameterized distribution
                 )
             finally:
                 os.remove(single_sample_bam_file.name)
@@ -379,8 +380,6 @@ def main():
         )
         real_args = argparse.Namespace(**vars(args))
         setattr(real_args, "header", True)
-        setattr(real_args, "variant_json", None)
-        setattr(real_args, "manifest", None)
         extract(real_args, args.input, args.bam, out_file=real_tsv_file, sample=sample)
 
     # Perform genotyping

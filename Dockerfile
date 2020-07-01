@@ -2,6 +2,7 @@ FROM ubuntu:18.04
 
 RUN apt-get -qq update && apt-get install --no-install-recommends -yq \
   art-nextgen-simulation-tools \
+  bc \
   bcftools \
   bedtools \
   build-essential \
@@ -9,7 +10,6 @@ RUN apt-get -qq update && apt-get install --no-install-recommends -yq \
   cmake \
   curl \
   gawk \
-  git \
   libbz2-dev \
   liblzma-dev \
   python3-dev \

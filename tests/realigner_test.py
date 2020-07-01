@@ -34,8 +34,8 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
                 input_bam, 569.2, 163, 148, mean_coverage=25
             )
             hom_alt_ref, hom_alt_alt = count_alleles_with_npsva(
-                variant,
                 self.args,
+                variant,
                 input_bam,
                 sample,
                 input_fasta=self.input_fasta,
@@ -50,8 +50,8 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
                 input_bam, 569.2, 163, 148, mean_coverage=25
             )
             het_ref, het_alt = count_alleles_with_npsva(
-                variant,
                 self.args,
+                variant,
                 input_bam,
                 sample,
                 input_fasta=self.input_fasta,
@@ -77,8 +77,8 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
                 )
                 output_bam_file.close()
                 hom_alt_ref, hom_alt_alt = count_alleles_with_npsva(
-                    variant,
                     self.args,
+                    variant,
                     input_bam,
                     sample,
                     input_fasta=self.input_fasta,
@@ -129,3 +129,31 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             self.assertLess(scores[0], 0)
         finally:
             os.remove(sam_file.name)
+
+    def test_insert_distribution(self):
+        for record in vcf.Reader(self.vcf_file):
+            self.assertTrue(record.is_sv)
+            variant = Variant.from_pyvcf(record)
+
+            input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_2.bam")
+            sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), input_bam)
+            count_alleles_with_npsva(
+                self.args,
+                variant,
+                input_bam,
+                sample,
+                input_fasta=self.input_fasta,
+                ref_contig="1_2073761_2073846_DEL",
+                alt_contig="1_2073761_2073846_DEL_alt",
+            )
+
+            count_alleles_with_npsva(
+                self.args,
+                variant,
+                input_bam,
+                sample,
+                input_fasta=self.input_fasta,
+                ref_contig="1_2073761_2073846_DEL",
+                alt_contig="1_2073761_2073846_DEL_alt",
+                insert_hist=False,
+            )

@@ -20,12 +20,12 @@ class SampleLoadTestSuite(unittest.TestCase):
         self.assertIsNotNone(library_object)
 
         self.assertEqual(library_object.read_length, 148)
-        self.assertAlmostEqual(library_object.mean_insert_size, 572.32, places=1)
-        self.assertAlmostEqual(library_object.std_insert_size, 156.41, places=1)
+        self.assertAlmostEqual(library_object.mean_insert_size, 573.060562, places=1)
+        self.assertAlmostEqual(library_object.std_insert_size, 164.215239, places=1)
 
         self.assertEqual(
             library_object.insert_size_density[10000],
-            norm.pdf(10000, loc=572.32, scale=156.41),
+            norm.pdf(10000, loc=573.060562, scale=164.215239),
         )
 
         # Compute the normalized GC coverage
