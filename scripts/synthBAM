@@ -120,12 +120,12 @@ trap "rm -rf $TMPDIR" 0
 FASTA=$TMPDIR/diploid.fasta
 if [[ $ZYGOSITY -eq 0 ]]; then
     npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 0 -i "$INVCF" -o "$FASTA"
-    COVERAGE=$(( COVERAGE * 2 ))
+    COVERAGE=$(bc <<< "$COVERAGE * 2")
 elif [[ $ZYGOSITY -eq 1 ]]; then
     npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 1 -i "$INVCF" -o "$FASTA"
 elif [[ $ZYGOSITY -eq 2 ]]; then
     npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 2 -i "$INVCF" -o "$FASTA"
-    COVERAGE=$(( COVERAGE * 2 ))
+    COVERAGE=$(bc <<< "$COVERAGE * 2")
 else
     >&2 echo "Error: Invalid zygosity specified, required values are (0,1,2)"
     exit 1
@@ -172,8 +172,7 @@ done
 if [[ "$SAMPLES" -gt 1 ]]; then
     # Combine all of the individual BAM files
     >&2 echo "Generating aligned BAM files with replicates"
-    sambamba -q merge "${OUTBAM/%bam/synth.bam}" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/synth%d.bam")
-    sambamba -q merge "$OUTBAM" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/aligned%d.bam")
+    sambamba -q merge -t 1 "$OUTBAM" $(seq 1 "$SAMPLES" | xargs printf " $TMPDIR/aligned%d.bam")
 else
     mv "$TMPDIR/aligned1.bam" "$OUTBAM"
     mv "$TMPDIR/aligned1.bam.bai" "$OUTBAM.bai"
