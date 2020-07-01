@@ -62,12 +62,12 @@ FEATURES = [
     "REF_SPAN_REL",
     "ALT_SPAN_REL",
 ]
+
 ABSOLUTE_FEATURES = ["REF_SPLIT", "ALT_SPLIT", "REF_SPAN", "ALT_SPAN", "COVG"]
+
 MAHAL_FEATURES = [
     "INSERT_LOWER",
     "INSERT_UPPER",
-    #"DHFC",
-    #"DHBFC",
     "DHFFC",
     #"REF_READ_REL",
     "ALT_READ_REL",
@@ -78,6 +78,18 @@ MAHAL_FEATURES = [
     # "REF_SPAN",
     # "ALT_SPAN",
     # "COVG",
+]
+
+RF_FEATURES = [
+    "SVLEN",
+    "INSERT_LOWER",
+    "INSERT_UPPER",
+    "DHFFC",
+    "ALT_READ_REL",
+    "PROB_HOMREF",
+    "PROB_HET",
+    "PROB_HOMALT",
+    "ALT_SPAN_REL",
 ]
 
 C_RANGE = np.logspace(-2, 10, 13)
@@ -95,7 +107,7 @@ VCF_COLUMN_HEADERS = [
     "INFO",
     "FORMAT",
 ]
-VCF_FORMAT = "GT:GR:DM"
+VCF_FORMAT = "GT:GR:PL:DM"
 AC_TO_GT = ("0/0", "0/1", "1/1")
 
 
@@ -119,31 +131,40 @@ def record_to_var_col(record: vcf.model._Record, sample):
     return (record.CHROM, record.POS, int(record.sv_end), record.var_subtype, sample)
 
 
-def pred_to_vcf(real_data, pred, dm2=None) -> str:
+def pred_to_vcf(real_data, pred, prob=None, dm2=None) -> str:
     """Prediction to VCF call field for sample"""
     assert real_data.shape[0] == 1, "Real data should have just one variant"
-    return "{gt}:{grr},{gra}:{md}".format(
+    
+    # Compute PL
+    if prob is not None:
+        pl = np.round(-10.*np.log10(prob)).astype(int)
+        pl -= np.min(pl)
+    
+    return "{gt}:{grr},{gra}:{pl}:{md}".format(
         gt=AC_TO_GT[pred] if pred is not None else "./.",
         grr=int(real_data["REF_SPLIT"].iloc[0]),
         gra=int(real_data["ALT_SPLIT"].iloc[0]),
-        md=",".join(map(str, dm2)) if dm2 is not None else ".",
+        pl=",".join(map(str, pl)) if prob is not None else ".",
+        md=",".join(map(str, np.round(dm2, decimals=1))) if dm2 is not None else ".",
     )
 
 
-def multi_rf_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
+def rf_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     x = sim_data[features]
     y = sim_data[klass]
 
-    clf = RandomForestClassifier(max_depth=3, min_samples_leaf=5)
+    # Fit the model
+    clf = RandomForestClassifier(n_estimators=100, max_features="auto", max_depth=None)
     clf = clf.fit(x, y)
 
+     # Predict the real data
     real_x = real_data[features]
     pred = clf.predict(real_x)
+    prob = clf.predict_proba(real_x)
+    return (pred, prob)
 
-    return pred
 
-
-def multi_svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
+def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     x = sim_data[features]
     y = sim_data[klass]
 
@@ -159,7 +180,9 @@ def multi_svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_CO
 
     # Predict the real data
     real_x = scaler.transform(real_data[features])
-    return clf.predict(real_x)
+    pred = clf.predict(real_x)
+    prob = clf.predict_proba(real_x)
+    return (pref, prob)
 
 
 def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
@@ -187,54 +210,6 @@ def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_CO
             prob = np.exp(prob - logsumexp(prob))
 
         return (pred, prob, score)
-
-
-def single_svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
-    """Classify single variant using SVM"""
-    assert real_data.shape[0] == 1, "Real data should have just one variant"
-
-    x = sim_data[features]
-    y = sim_data[klass]
-
-    # Normalize the training set
-    scaler = StandardScaler()
-    x = scaler.fit_transform(x)
-
-    # Grid-search to find the best gamma and C values for the rbf kernel
-    cv = StratifiedShuffleSplit(n_splits=5, test_size=0.2, random_state=42)
-    grid = GridSearchCV(
-        SVC(probability=True, kernel="rbf"), param_grid=PARAM_GRID, cv=cv
-    )
-
-    # Fit the model
-    grid.fit(x, y)
-
-    # Predict the real data
-    real_x = scaler.transform(real_data[features])
-
-    pred = grid.predict(real_x)[0]
-    prob = grid.predict_proba(real_x)[0]
-
-    return (pred, prob)
-
-
-def single_randomforest_classify(
-    sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL
-):
-    """Classify single variant using Random Forests"""
-    assert real_data.shape[0] == 1, "Real data should have just one variant"
-
-    x = sim_data[features]
-    y = sim_data[klass]
-
-    clf = RandomForestClassifier()  # min_samples_leaf=5)
-    clf = clf.fit(x, y)
-
-    real_x = real_data[features]
-    pred = clf.predict(real_x)[0]
-    prob = clf.predict_proba(real_x)[0]
-
-    return (pred, prob)
 
 
 def add_derived_features(data):
@@ -298,7 +273,7 @@ def genotype_vcf(
         sim_data = pd.read_table(
             input_sim, dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
         )
-   
+
     if sim_data.shape[0] == 0:
         # No data is available, copy input to output and exit
         vcf_reader = vcf.Reader(filename=input_vcf)
@@ -306,15 +281,20 @@ def genotype_vcf(
             overwrite_reader_samples(vcf_reader, samples)
         vcf.Writer(output_file, vcf_reader)
         return
-   
+
     add_derived_features(sim_data)
 
     real_data = pd.read_table(input_real, dtype={"#CHROM": str, "SAMPLE": str})
     add_derived_features(real_data)
 
     # Filter to available features
-    available_features = set(sim_data) & set(real_data)
-    features = [feature for feature in FEATURES if feature in available_features]
+    if args.classifier == "svm":
+        desired_features = set(FEATURES)
+    elif args.classifier == "rf":
+        desired_features = set(RF_FEATURES)
+    else:
+        raise NotImplementedError(f"Unknown classifier type: {args.classifier}")
+    features = list(desired_features & set(sim_data) & set(real_data))
     logging.info("Genotyping with features: %s", ", ".join(features))
 
     if not args.local:
@@ -334,9 +314,9 @@ def genotype_vcf(
             "Building global %s classifier based on simulated data", args.classifier
         )
         if args.classifier == "svm":
-            pred = multi_svm_classify(downsample_sim_data, real_data, features=features)
+            pred, _ = svm_classify(downsample_sim_data, real_data, features=features)
         elif args.classifier == "rf":
-            pred = multi_rf_classify(downsample_sim_data, real_data, features=features)
+            pred, _ = rf_classify(downsample_sim_data, real_data, features=features)
         else:
             raise NotImplementedError(f"Unknown classifier type: {args.classifier}")
 
@@ -380,17 +360,16 @@ def genotype_vcf(
         "Reads mapped by Paragraph to reference and alternate sequences",
     )
     vcf_reader.formats["DM"] = vcf.parser._Format(
-        "DM",
-        "G",
-        "Float",
-        "Mahalanobis distance for each genotype",
+        "DM", "G", "Float", "Mahalanobis distance for each genotype",
     )
 
     # If original VCF is sites only...
     if len(vcf_reader._column_headers) < 9:
         vcf_reader._column_headers = VCF_COLUMN_HEADERS
     # Set sample names
-    overwrite_reader_samples(vcf_reader, list(set(real_data[SAMPLE_COL]) | set(samples)))
+    overwrite_reader_samples(
+        vcf_reader, list(set(real_data[SAMPLE_COL]) | set(samples))
+    )
 
     # Write new VCF entries, building local classifiers as needed
     vcf_writer = vcf.Writer(output_file, vcf_reader, lineterminator="")
@@ -430,7 +409,7 @@ def genotype_vcf(
 
             # Construct VCF call entry
             if not args.local:
-                call = pred_to_vcf(real_group, pred[indices[0]])
+                call = pred_to_vcf(real_group, pred[indices[0]], prob[indices[0]])
             else:
                 # Construct local classifier
                 sim_group = grouped_sim_data.get_group(group_vals)
@@ -457,32 +436,21 @@ def genotype_vcf(
                     sim_group.shape[0],
                 )
                 # If in debug mode, also print Mahalanobis distance
+                mahal_score = None
                 if args.dm2:
                     try:
                         _, _, mahal_score = single_mahalanobis(
                             sim_group, real_group, features=MAHAL_FEATURES
                         )
-                        logging.info(
-                            "%s@%s: Mahalanobis^2=%s",
-                            sample,
-                            variant_descriptor(record),
-                            np.array2string(mahal_score.values, separator=","),
-                        )
                     except:
-                        mahal_score = None
-                else:
-                    mahal_score = None
-
+                        pass
+                    
                 # Classify variant and generate VCF genotype entry
                 try:
                     if args.classifier == "svm":
-                        pred, _ = single_svm_classify(
-                            sim_group, real_group, features=features
-                        )
+                        pred, prob = svm_classify(sim_group, real_group, features=features)
                     elif args.classifier == "rf":
-                        pred, _ = single_randomforest_classify(
-                            sim_group, real_group, features=features
-                        )
+                        pred, prob = rf_classify(sim_group, real_group, features=features)
                     else:
                         raise NotImplementedError(
                             f"Unknown classifier type: {args.classifier}"
@@ -492,7 +460,7 @@ def genotype_vcf(
                         "Genotyping error for %s: %s", variant_descriptor(record), e
                     )
                     pred = None
-                call = pred_to_vcf(real_group, pred, dm2=mahal_score)
+                call = pred_to_vcf(real_group, pred.item(0), prob[0,], dm2=mahal_score)
 
             output_file.write("\t" + call)
 

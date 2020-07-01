@@ -211,20 +211,6 @@ def prob_mapq(read):
     return 1 - 10 ** (-read.mapping_quality / 10.0)
 
 
-def extract_id_from_paragraph(paragraph_result: dict) -> str:
-    """Extract variant ID from sequence names in paragraph results
-
-    Args:
-        paragraph_result (dict): Paragraph output
-
-    Returns:
-        str: Variant ID
-    """
-    sequence_names = paragraph_result["sequencenames"][:]
-    sequence_names.remove("REF")
-    return os.path.commonprefix(sequence_names).rstrip(":")
-
-
 def pad_vcf_alleles(args, input_vcf, output_vcf_file):
     vcf_reader = vcf.Reader(filename=input_vcf)
     records = [record for record in vcf_reader]
@@ -252,155 +238,6 @@ def pad_vcf_alleles(args, input_vcf, output_vcf_file):
     )
     record_vcf_writer = vcf.Writer(output_vcf_file, vcf_reader)
     record_vcf_writer.write_record(record)
-
-
-def convert_vcf_to_graph(args, input_vcf, output_graph):
-    try:
-        commandline = "{0} {1} -r {2} --graph-type alleles {3} {4}".format(
-            quote(sys.executable),
-            quote(args.vcf2paragraph),
-            quote(args.reference),
-            quote(input_vcf),
-            quote(output_graph),
-        )
-        subprocess.check_call(commandline, shell=True, stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        # The likely cause is overly strict parsing by Paragraph for non-simple insertions/deletions, add
-        # in the desired padding base
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".vcf", dir=args.tempdir
-        ) as padded_vcf_file:
-            try:
-                pad_vcf_alleles(args, input_vcf, padded_vcf_file)
-                padded_vcf_file.close()
-
-                commandline = "{0} {1} -r {2} --graph-type alleles {3} {4}".format(
-                    quote(sys.executable),
-                    quote(args.vcf2paragraph),
-                    quote(args.reference),
-                    quote(padded_vcf_file.name),
-                    quote(output_graph),
-                )
-
-                subprocess.check_call(commandline, shell=True)
-            finally:
-                os.remove(padded_vcf_file.name)
-
-
-def align_to_graph(
-    args, input_bam, input_graphs, output_path, response_file: str = None
-):
-    if response_file is not None:
-        resp_arg = f"--response-file {quote(response_file)}"
-    else:
-        resp_arg = ""
-
-    commandline = "{exec} -r {ref} {graphs} -b {bam} -o {output} --log-level error --threads {threads} {resp} --variant-min-frac 0 --variant-min-reads 0".format(
-        exec=quote(args.paragraph),
-        ref=quote(args.reference),
-        graphs=" ".join(map(lambda g: f"-g {quote(str(g))}", input_graphs)),
-        bam=quote(input_bam),
-        output=quote(output_path),
-        threads=args.threads,
-        resp=resp_arg,
-    )
-    subprocess.check_call(commandline, shell=True)
-
-
-def run_paragraph_on_vcf(args, input_vcf: str, input_bam: str, sample: Sample):
-    # Construct graph JSON file(s)
-    if args.variant_json:
-        converted_json_paths = [args.variant_json]
-    else:
-        converted_json_paths = []
-        vcf_reader = vcf.Reader(filename=input_vcf)
-        for record in vcf_reader:
-            if not record.is_sv or record.var_subtype != "DEL":
-                continue
-
-            if record.ID is None:
-                # Update ID to be more meaningful
-                record.ID = variant_descriptor(record)
-
-            try:
-                # Split VCF into individual records
-                with tempfile.NamedTemporaryFile(
-                    mode="w", delete=False, suffix=".vcf", dir=args.tempdir
-                ) as record_vcf_file:
-                    record_vcf_writer = vcf.Writer(record_vcf_file.file, vcf_reader)
-                    record_vcf_writer.write_record(record)
-
-                # Generate graph JSON file for record
-                record_json_path = Path(record_vcf_file.name).with_suffix(".json")
-                convert_vcf_to_graph(args, record_vcf_file.name, str(record_json_path))
-                converted_json_paths.append(record_json_path)
-            finally:
-                os.remove(record_vcf_file.name)
-
-    # Run paragraph
-    try:
-        # Create paragraph response file with graph inputs to avoid issues with command line length
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".txt", dir=args.tempdir
-        ) as response_file:
-            for converted_json_path in converted_json_paths:
-                print("-g", converted_json_path, sep=" ", file=response_file)
-
-        paragraph_result_file = tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".json", dir=args.tempdir
-        )
-        paragraph_result_file.close()
-
-        align_to_graph(
-            args,
-            input_bam,
-            [],
-            paragraph_result_file.name,
-            response_file=response_file.name,
-        )
-
-        with open(paragraph_result_file.name, "r") as paragraph_result_file:
-            results = json.load(paragraph_result_file)
-            if not isinstance(results, list):
-                results = [results]
-            # Paragraph results aren't in a consistent order. Extract into dictionary keyed by variant ID.
-            paragraph_dict = {}
-            for result in results:
-                variant_id = extract_id_from_paragraph(result)
-                assert (
-                    variant_id
-                ), "Unable to extract valid variant ID from paragraph result"
-                assert (
-                    variant_id not in paragraph_dict
-                ), "Duplicate variant ID in paragraph result"
-                paragraph_dict[variant_id] = result
-            return paragraph_dict
-    finally:
-        if not args.variant_json:
-            map(os.remove, converted_json_paths)
-        os.remove(response_file.name)
-        os.remove(paragraph_result_file.name)
-
-
-def extract_paragraph_read_counts(record, paragraph_output):
-    id = record.ID
-    assert id is not None, "Variant needs ID to robustly extract Paragraph results"
-    ref_allele = id + ":0"
-    alt_allele = id + ":1"
-
-    read_counts = paragraph_output["read_counts_by_sequence"]
-    reported_sequences = ref_sequence = alt_sequence = 0
-    for allele, counts in read_counts.items():
-        if ref_allele in allele:
-            ref_sequence += counts["total:READS"]
-            reported_sequences += 1
-        if alt_allele in allele:
-            alt_sequence += counts["total:READS"]
-            reported_sequences += 1
-    if reported_sequences == 0 and len(read_counts) > 0:
-        logging.warning("No read counts detected for %s", variant_descriptor(record))
-
-    return (ref_sequence, alt_sequence)
 
 
 def extract(
@@ -510,12 +347,6 @@ def extract(
         )
         # ref_count, alt_count, *_ = variant.count_alleles_with_svviz2(args, input_bam)
         features.read_counts = (ref_count, alt_count)
-
-        # assert record.ID in graph_alignments, "No paragraph data available"
-        # ref_split, alt_split = extract_paragraph_read_counts(
-        #     record, graph_alignments[record.ID]
-        # )
-        # features.read_counts = (ref_split, alt_split)
 
         # -------------------------------------
         # Paired-end evidence

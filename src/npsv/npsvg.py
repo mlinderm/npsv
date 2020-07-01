@@ -85,21 +85,9 @@ def main():
         dest="reference",
         required=True,
     )
-    parser_features.add_argument(
-        "--variant-json",
-        dest="variant_json",
-        type=str,
-        help="Pre-converted graph file for input VCF",
-    )
-    parser_features.add_argument(
-        "--manifest", help="Input manifest file.", type=str, dest="manifest"
-    )
 
     data_options = parser_features.add_argument_group()
     npsv_options.add_data_options(data_options)
-
-    paragraph_options = parser_features.add_argument_group()
-    npsv_options.add_paragraph_options(paragraph_options)
 
     feature_options = parser_features.add_argument_group()
     npsv_options.add_feature_options(feature_options)
@@ -163,7 +151,12 @@ def main():
         default=sys.stdout,
         help="Output file",
     )
-    parser_genotype.add_argument("--samples", action="append", default=[], help="Force sample names when no calls in the file")
+    parser_genotype.add_argument(
+        "--samples",
+        action="append",
+        default=[],
+        help="Force sample names when no calls in the file",
+    )
     npsv_options.add_genotyping_options(parser_genotype)
 
     # Plotting
@@ -200,10 +193,7 @@ def main():
         "-o", "--output", type=str, help="Output file", required=True
     )
     parser_preproc.add_argument(
-        "--goleft",
-        default="goleft",
-        type=str,
-        help="Path to goleft executable",
+        "--goleft", default="goleft", type=str, help="Path to goleft executable",
     )
     parser_preproc_picard = parser_preproc.add_mutually_exclusive_group(required=True)
     parser_preproc_picard.add_argument(
@@ -213,23 +203,22 @@ def main():
         "--picard-gc",
         type=str,
         help="Path to Picard detail GC bias metrics",
-        dest="picard_gc"
+        dest="picard_gc",
     )
     parser_preproc.add_argument(
         "--picard-insert",
         type=str,
         help="Path to Picard insert size metrics",
-        dest="picard_insert"
+        dest="picard_insert",
     )
     parser_preproc.add_argument(
-        "--picard-wgs",
-        type=str,
-        help="Path to Picard wgs metrics",
-        dest="picard_wgs"
+        "--picard-wgs", type=str, help="Path to Picard wgs metrics", dest="picard_wgs"
     )
 
     # Propose alternate representations
-    parser_propose = subparsers.add_parser("propose", help="Propose alternate representations")
+    parser_propose = subparsers.add_parser(
+        "propose", help="Propose alternate representations"
+    )
     parser_propose.add_argument(
         "-r",
         "--reference-sequence",
@@ -252,7 +241,9 @@ def main():
     npsv_options.add_propose_options(parser_propose)
 
     # Select among proposed alternate representations
-    parser_refine = subparsers.add_parser("refine", help="Refine alternate representations to final VCF")
+    parser_refine = subparsers.add_parser(
+        "refine", help="Refine alternate representations to final VCF"
+    )
     parser_refine.add_argument(
         "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
     )
@@ -266,7 +257,9 @@ def main():
     )
 
     # Generate FASTA with consensus sequence
-    parser_consensus = subparsers.add_parser("consensus", help="Generate FASTA with consensus sequence")
+    parser_consensus = subparsers.add_parser(
+        "consensus", help="Generate FASTA with consensus sequence"
+    )
     parser_consensus.add_argument(
         "-r",
         "--reference-sequence",
@@ -301,8 +294,6 @@ def main():
 
     args = parser.parse_args()
 
-    
-
     # Configure logging
     logging.basicConfig(level=args.loglevel)
 
@@ -312,7 +303,10 @@ def main():
         extract(args, args.input, args.bam, out_file=args.output, ac=args.ac)
     elif args.command == "genotype":
         from .genotyper import genotype_vcf
-        genotype_vcf(args, args.input, args.sim, args.real, args.output, samples=args.samples)
+
+        genotype_vcf(
+            args, args.input, args.sim, args.real, args.output, samples=args.samples
+        )
     elif args.command == "random":
         from .random_variants import random_variants
 
@@ -329,6 +323,7 @@ def main():
         )
     elif args.command == "plot":
         from .plot import plot_features
+
         plot_features(args, args.sim, args.real, args.vcf, args.output)
 
     elif args.command == "preprocess":
@@ -340,13 +335,16 @@ def main():
             json.dump(stats, file)
 
     elif args.command == "propose":
-        from .propose import propose_variants       
+        from .propose import propose_variants
+
         propose_variants(args, args.input, args.output)
     elif args.command == "refine":
         from .propose import refine_variants
+
         refine_variants(args, args.input, args.output)
     elif args.command == "consensus":
         from .variant import consensus_fasta
+
         consensus_fasta(args, args.input, args.output)
 
 
