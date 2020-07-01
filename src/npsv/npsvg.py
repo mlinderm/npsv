@@ -163,7 +163,7 @@ def main():
         default=sys.stdout,
         help="Output file",
     )
-    parser_genotype.add_argument("--sample", action="append", default=[], help="Force sample names when no calls in the file")
+    parser_genotype.add_argument("--samples", action="append", default=[], help="Force sample names when no calls in the file")
     npsv_options.add_genotyping_options(parser_genotype)
 
     # Plotting

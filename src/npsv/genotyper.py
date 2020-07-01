@@ -69,10 +69,15 @@ MAHAL_FEATURES = [
     #"DHFC",
     #"DHBFC",
     "DHFFC",
-    "REF_READ_REL",
+    #"REF_READ_REL",
     "ALT_READ_REL",
-    "REF_READ_REL",
+    #"REF_READ_REL",
     "ALT_SPAN_REL",
+    # "REF_SPLIT", 
+    # "ALT_SPLIT",
+    # "REF_SPAN",
+    # "ALT_SPAN",
+    # "COVG",
 ]
 
 C_RANGE = np.logspace(-2, 10, 13)
