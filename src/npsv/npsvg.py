@@ -300,7 +300,7 @@ def main():
     if args.command == "features":
         from .feature_extraction import extract
 
-        extract(args, args.input, args.bam, out_file=args.output, ac=args.ac)
+        extract(args, args.input, args.bam, out_file=args.output, ac=args.ac, insert_hist=args.insert_hist)
     elif args.command == "genotype":
         from .genotyper import genotype_vcf
 

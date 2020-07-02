@@ -78,6 +78,20 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         type=int,
         help="Size of flanking regions for computing relative coverage to flanks",
     )
+    parser.add_argument(
+        "--no-straddle",
+        dest="count_straddle",
+        action="store_false",
+        default=True,
+        help="Don't count straddlers as realigned alleles",
+    )
+    parser.add_argument(
+        "--param_dist",
+        help="Use parameterized insert size distribution when extracting features from simulated data",
+        dest="insert_hist",
+        action="store_false",
+        default=True,
+    )
     return parser
 
 

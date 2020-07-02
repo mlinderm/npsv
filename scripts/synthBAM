@@ -116,7 +116,6 @@ trap "rm -rf $TMPDIR" 0
 # Generate diploid FASTAs for input to synthetic read generator
 
 # TODO: Make reference and alternate contigs have the same length (going into ART)
-
 FASTA=$TMPDIR/diploid.fasta
 if [[ $ZYGOSITY -eq 0 ]]; then
     npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 0 -i "$INVCF" -o "$FASTA"
@@ -144,7 +143,6 @@ do
     else
         SM="$SAMPLE"
     fi
-
     # Generate synthetic reads reads1.fq and reads2.fq. art_illumina use time in seconds for seed which can result in identical seeds for data.
     READS_PREFIX=$TMPDIR/reads.synth${s}
     art_illumina -q -i "$FASTA" -o "$READS_PREFIX" -sam -ss "$PROFILE" -l "$LENGTH" -f "$COVERAGE" -p -m "$FRAGMEAN" -s "$FRAGSD" -sp -rs $(od -An -tu4 -N4 /dev/urandom) 1>&2

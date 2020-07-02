@@ -9,20 +9,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from npsv.feature_extraction import Features
 from npsv.variant import variant_descriptor
 from npsv.genotyper import add_derived_features
 
-FEATURE_COL = [
-    "INSERT_LOWER",
-    "INSERT_UPPER",
-    "DHFC",
-    "DHBFC",
-    "DHFFC",
-    "REF_READ_REL",
-    "ALT_READ_REL",
-    "REF_READ_REL",
-    "ALT_SPAN_REL",
-]
+FEATURE_COL = Features.FEATURES
 VARIANT_COL = ["#CHROM", "START", "END", "TYPE"]
 
 def plot_hist(data, col, colors, ax):
@@ -107,25 +98,14 @@ def plot_features(
         
         fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(8.5, 6))
         
-        sns.scatterplot(ax=ax1, x="REF_READ_REL", y="ALT_READ_REL", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
-        sns.scatterplot(ax=ax2, x="REF_SPAN_REL", y="ALT_SPAN_REL", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax1, x="REF_SPLIT", y="ALT_SPLIT", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax2, x="REF_SPAN", y="ALT_SPAN", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
         sns.scatterplot(ax=ax3, x="INSERT_LOWER", y="INSERT_UPPER", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
         
         plot_hist(ax=ax4, col="DHFC", data=plot_data, colors=colors)
         plot_hist(ax=ax5, col="DHBFC", data=plot_data, colors=colors)
         plot_hist(ax=ax6, col="DHFFC", data=plot_data, colors=colors)
 
-        # sns.set(style="ticks", color_codes=True)
-        # colors = sns.mpl_palette("Set1", 3) + [(0, 0, 0)]  # Actual data is black
-        # fig = sns.pairplot(
-        #     plot_data,
-        #     vars=features,
-        #     hue="AC",
-        #     diag_kind="hist",
-        #     markers=["o", "o", "o", "x"],
-        #     palette=colors,
-        # )
-        # fig.add_legend()
         fig.suptitle("{}:{}-{}".format(*variant), size=16)
         fig.subplots_adjust(top=0.95)
 
