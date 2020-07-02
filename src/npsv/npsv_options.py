@@ -85,6 +85,13 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         default=True,
         help="Don't count straddlers as realigned alleles",
     )
+    parser.add_argument(
+        "--param_dist",
+        help="Use parameterized insert size distribution when extracting features from simulated data",
+        dest="insert_hist",
+        action="store_false",
+        default=True,
+    )
     return parser
 
 

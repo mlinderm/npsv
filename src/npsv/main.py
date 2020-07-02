@@ -15,6 +15,7 @@ from npsv.random_variants import random_variants
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
 import ray
+from retry import retry
 
 
 def make_argument_parser():
@@ -189,6 +190,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
             force_chrom=record.CHROM,
             force_pos=pos,
             force_end=end,
+            insert_hist=True,
         )
 
         simulated_ACs = [1, 2]
@@ -205,44 +207,37 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
-            # logging.info(f"Simulating reads to generate {synthetic_bam_path}")
-
             # Check if shared reference is available
             shared_ref_arg = ""
             if check_if_bwa_index_loaded(args.reference):
                 shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
 
-            # Generate synthetic BAM file
-            synth_commandline = f"synthBAM \
-                -t {quote(args.tempdir)} \
-                -R {quote(args.reference)} \
-                {shared_ref_arg} \
-                -g {quote(args.genome)} \
-                -c {sample.mean_coverage / 2:0.1f} \
-                -m {sample.mean_insert_size} \
-                -s {sample.std_insert_size} \
-                -l {art_read_length(sample.read_length, args.profile)} \
-                -p {args.profile} \
-                -f {args.flank} \
-                -i {args.n} \
-                -z {z} \
-                -n {sample.name} \
-                {variant_vcf_path} {synthetic_bam_path}"
-
-            try:
+            # Synthetic data generation seems to fail randomly for some variants
+            @retry(tries=2)
+            def gen_synth_bam():
+                # Generate synthetic BAM file
+                synth_commandline = f"synthBAM \
+                    -t {quote(args.tempdir)} \
+                    -R {quote(args.reference)} \
+                    {shared_ref_arg} \
+                    -g {quote(args.genome)} \
+                    -c {sample.mean_coverage / 2:0.1f} \
+                    -m {sample.mean_insert_size} \
+                    -s {sample.std_insert_size} \
+                    -l {art_read_length(sample.read_length, args.profile)} \
+                    -p {args.profile} \
+                    -f {args.flank} \
+                    -i {args.n} \
+                    -z {z} \
+                    -n {sample.name} \
+                    {variant_vcf_path} {synthetic_bam_path}"
                 synth_result = subprocess.run(
-                    synth_commandline, shell=True, check=True, stderr=subprocess.PIPE,
+                    synth_commandline, shell=True, stderr=subprocess.PIPE,
                 )
-            except subprocess.CalledProcessError as err:
-                print(synth_commandline, file=sys.stderr)
-                print(err.stderr, file=sys.stderr)
-                raise err
-
-            if not os.path.exists(synthetic_bam_path):
-                print(synth_result.stderr, file=sys.stderr)
-            assert os.path.exists(
-                synthetic_bam_path
-            ), "Synthesis script didn't create BAM file"
+                if synth_result.returncode != 0 or not os.path.exists(synthetic_bam_path):
+                    raise RuntimeError(f"Synthesis script failed to generate {synthetic_bam_path}")
+            
+            gen_synth_bam()
 
         for i in range(1, args.n + 1):
             try:
@@ -265,9 +260,6 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     single_sample_bam_file.name, "-b"
                 )
 
-                logging.debug(
-                    "Extracting features from %s", single_sample_bam_file.name
-                )
                 extract(
                     synth_extract_args,
                     variant_vcf_path,
@@ -278,7 +270,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     input_fasta=fasta_path,
                     ref_contig=ref_contig,
                     alt_contig=alt_contig,
-                    insert_hist=False, # Since synthetic data, use parameterized distribution
+                    insert_hist=args.insert_hist,
                 )
             finally:
                 os.remove(single_sample_bam_file.name)
@@ -380,7 +372,7 @@ def main():
         )
         real_args = argparse.Namespace(**vars(args))
         setattr(real_args, "header", True)
-        extract(real_args, args.input, args.bam, out_file=real_tsv_file, sample=sample)
+        extract(real_args, args.input, args.bam, out_file=real_tsv_file, sample=sample, insert_hist=True)
 
     # Perform genotyping
     with open(os.path.join(args.output, args.prefix + ".npsv.vcf"), "w") as gt_vcf_file:

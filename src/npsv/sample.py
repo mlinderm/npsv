@@ -322,6 +322,20 @@ class Sample(object):
     def insert_size_density(self, read_group=None):
         return self.get_library(read_group).insert_size_density
 
+    def search_distance(self, percentile=0.99, read_group=None) -> int:
+        """Return flanking distance for querying for reads determined by percentile of insert sizes
+
+        Args:
+            percentile (float, optional): Precentile of insert sizes. Defaults to 0.99.
+            read_group ([type], optional): Read group ID. Defaults to None.
+
+        Returns:
+            int: Size of flanking region
+        """
+        # Adapted from svviz2
+        library = self.get_library(read_group)
+        return math.ceil(norm.ppf(percentile, library.mean, library.sd))
+
     def gc_mean_coverage(self, gc_fraction: float, read_group: str = None) -> float:
         """Return mean coverage for bins with this GC fraction
         

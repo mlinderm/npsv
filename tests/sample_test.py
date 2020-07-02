@@ -28,6 +28,9 @@ class SampleLoadTestSuite(unittest.TestCase):
             norm.pdf(10000, loc=573.060562, scale=164.215239),
         )
 
+        # Compute search distance
+        self.assertGreater(sample_object.search_distance(percentile=0.99), norm.ppf(0.99, library_object.mean_insert_size, library_object.std_insert_size))
+
         # Compute the normalized GC coverage
         self.assertAlmostEqual(
             library_object.gc_normalized_coverage(0.40), 1.110604, places=3

@@ -345,6 +345,7 @@ def extract(
         # -------------------------------------
 
         # Determine paired-end evidence regions
+        # TODO: Switch to sample.search_distance
         pair_flank = 1000
 
         left_id = right_id = bam_reader.gettid(record.CHROM)

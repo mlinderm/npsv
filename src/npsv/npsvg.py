@@ -98,14 +98,6 @@ def main():
 
     feature_options.add_argument("--ac", help="Set allele count", type=int)
 
-    feature_options.add_argument(
-        "--use-insert-param",
-        dest="insert_hist",
-        default=True,
-        action="store_false",
-        help="Use parameterized distribution for insert size",
-    )
-
     # Random variant generation
     parser_random = subparsers.add_parser("random", help="Extract features")
     parser_random.add_argument(
