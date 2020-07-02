@@ -7,7 +7,7 @@ from .variant import Variant, variant_descriptor
 
 PEAK_FINDING_FLANK = 5
 ORIGINAL_KEY = "ORIGINAL"
-VCF_FORMAT = "GT:DM:OGT:ODM"
+VCF_FORMAT = "GT:PL:DM:CL:OGT:OPL:ODM"
 
 
 def propose_variants(args, input_vcf: str, output_file):

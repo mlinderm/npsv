@@ -69,15 +69,10 @@ MAHAL_FEATURES = [
     "INSERT_LOWER",
     "INSERT_UPPER",
     "DHFFC",
-    #"REF_READ_REL",
+    "REF_READ_REL",
     "ALT_READ_REL",
-    #"REF_READ_REL",
+    "REF_READ_REL",
     "ALT_SPAN_REL",
-    # "REF_SPLIT", 
-    # "ALT_SPLIT",
-    # "REF_SPAN",
-    # "ALT_SPAN",
-    # "COVG",
 ]
 
 RF_FEATURES = [
@@ -86,10 +81,10 @@ RF_FEATURES = [
     "INSERT_UPPER",
     "DHFFC",
     "ALT_READ_REL",
+    "ALT_SPAN_REL",
     "PROB_HOMREF",
     "PROB_HET",
     "PROB_HOMALT",
-    "ALT_SPAN_REL",
 ]
 
 C_RANGE = np.logspace(-2, 10, 13)
@@ -137,8 +132,8 @@ def pred_to_vcf(real_data, pred, prob=None, dm2=None) -> str:
     
     # Compute PL
     if prob is not None:
-        pl = np.round(-10.*np.log10(prob)).astype(int)
-        pl -= np.min(pl)
+        pl = np.round(-10.*np.log10(prob + 1e-11)).astype(int)
+        pl = np.clip(pl - np.min(pl), 0, 99)
     
     return "{gt}:{grr},{gra}:{pl}:{md}".format(
         gt=AC_TO_GT[pred] if pred is not None else "./.",
@@ -351,16 +346,21 @@ def genotype_vcf(
     # --------------------------------------
     vcf_reader = vcf.Reader(filename=input_vcf)  # Original VCF file
 
-    # Add new fields to the header  (TODO: Add features as format field)
+    # Add new fields to the header
+    vcf_reader.metadata["npsv_classifier"] = [f"{args.classifier}({','.join(features)})[{'local' if args.local else 'single'}]"]
+    vcf_reader.metadata["npsv_dm2"] = [f"mahal({','.join(MAHAL_FEATURES)})"]
     vcf_reader.formats["GT"] = vcf.parser._Format("GT", 1, "String", "Genotype")
     vcf_reader.formats["GR"] = vcf.parser._Format(
         "GR",
         "R",
         "Integer",
-        "Reads mapped by Paragraph to reference and alternate sequences",
+        "Reads mapped to reference and alternate sequences",
     )
     vcf_reader.formats["DM"] = vcf.parser._Format(
         "DM", "G", "Float", "Mahalanobis distance for each genotype",
+    )
+    vcf_reader.formats["PL"] = vcf.parser._Format(
+        "PL", "G", "Integer", "Phred-scaled genotype likelihoods",
     )
 
     # If original VCF is sites only...
