@@ -65,7 +65,7 @@ def count_alleles_with_npsva(
             insert_size_density_dict,
         )
 
-        counts = realigner.count_alignments(
+        counts, read_names = realigner.count_alignments(
             input_bam,
             rl_breakpoint,
             al_breakpoint,
@@ -80,7 +80,7 @@ def count_alleles_with_npsva(
             1 if alt_length == 1 else 2
         )
 
-        return r_reads, a_reads
+        return r_reads, a_reads, read_names
     finally:
         # Clean up the file we created
         if fasta_path != input_fasta:

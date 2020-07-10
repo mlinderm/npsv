@@ -33,7 +33,7 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             sample = Sample.from_distribution(
                 input_bam, 569.2, 163, 148, mean_coverage=25
             )
-            hom_alt_ref, hom_alt_alt = count_alleles_with_npsva(
+            hom_alt_ref, hom_alt_alt, read_names = count_alleles_with_npsva(
                 self.args,
                 variant,
                 input_bam,
@@ -44,12 +44,16 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             )
             self.assertEqual(hom_alt_ref, 3.0)
             self.assertEqual(hom_alt_alt, 16.0)
+            # Since this si a deletion, the total reference fragment count is divided by 2
+            self.assertEqual(len(read_names["rl"]) + len(read_names["rr"]), hom_alt_ref * 2)
+            self.assertEqual(len(read_names["al"]) + len(read_names["ar"]), hom_alt_alt)
+            self.assertEqual(len(set(read_names["rl"] + read_names["rr"]) & set(read_names["al"] + read_names["ar"])), 0)
 
             input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_1.bam")
             sample = Sample.from_distribution(
                 input_bam, 569.2, 163, 148, mean_coverage=25
             )
-            het_ref, het_alt = count_alleles_with_npsva(
+            het_ref, het_alt, *_ = count_alleles_with_npsva(
                 self.args,
                 variant,
                 input_bam,
@@ -76,7 +80,7 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
                     delete=False, suffix=".bam"
                 )
                 output_bam_file.close()
-                hom_alt_ref, hom_alt_alt = count_alleles_with_npsva(
+                hom_alt_ref, hom_alt_alt, *_ = count_alleles_with_npsva(
                     self.args,
                     variant,
                     input_bam,
