@@ -168,7 +168,7 @@ def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     x = scaler.fit_transform(x)
 
     # Build the model
-    clf = SVC(kernel="rbf")
+    clf = SVC(kernel="rbf", probability=True)
 
     # Fit the model
     clf.fit(x, y)
@@ -177,7 +177,7 @@ def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     real_x = scaler.transform(real_data[features])
     pred = clf.predict(real_x)
     prob = clf.predict_proba(real_x)
-    return (pref, prob)
+    return (pred, prob)
 
 
 def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
@@ -311,9 +311,9 @@ def genotype_vcf(
             "Building global %s classifier based on simulated data", args.classifier
         )
         if args.classifier == "svm":
-            pred, _ = svm_classify(downsample_sim_data, real_data, features=features)
+            pred, prob = svm_classify(downsample_sim_data, real_data, features=features)
         elif args.classifier == "rf":
-            pred, _ = rf_classify(downsample_sim_data, real_data, features=features)
+            pred, prob = rf_classify(downsample_sim_data, real_data, features=features)
         else:
             raise NotImplementedError(f"Unknown classifier type: {args.classifier}")
 
