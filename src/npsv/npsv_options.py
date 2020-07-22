@@ -190,3 +190,20 @@ def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         default=4,
     )
     return parser
+
+def add_simulation_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        "--covg-gc-bias",
+        dest="covg_gc_bias",
+        help="Model GC bias in simulated coverage",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--max_gc_norm_covg",
+        dest="max_gc_norm_covg",
+        help="Max GC normalized coverage",
+        type=float,
+        default=2.0,
+    )
+    return parser

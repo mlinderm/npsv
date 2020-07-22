@@ -94,6 +94,7 @@ def make_argument_parser():
     synth_options.add_argument(
         "--profile", help="ART profile", type=str, default="HS25"
     )
+    add_simulation_options(synth_options)
 
     # Options used by "sub tools"
     data_options = parser.add_argument_group()
@@ -204,14 +205,21 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
     variant = Variant.from_pyvcf(record)
     fasta_path, ref_contig, alt_contig = variant.synth_fasta(args)
 
+    # Check if shared reference is available
+    shared_ref_arg = ""
+    if check_if_bwa_index_loaded(args.reference):
+        shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
+
+    stats_file_arg = ""
+    hap_coverage = sample.mean_coverage / 2
+    if args.covg_gc_bias and args.stats_path is not None:
+        # Use the BAM stats to model GC bias in the simulation
+        stats_file_arg = f"-j {quote(args.stats_path)}"
+        hap_coverage *= sample.max_gc_normalized_coverage(limit=args.max_gc_norm_covg)
+
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
-            # Check if shared reference is available
-            shared_ref_arg = ""
-            if check_if_bwa_index_loaded(args.reference):
-                shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
-
             # Synthetic data generation seems to fail randomly for some variants
             @retry(tries=2)
             def gen_synth_bam():
@@ -221,7 +229,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     -R {quote(args.reference)} \
                     {shared_ref_arg} \
                     -g {quote(args.genome)} \
-                    -c {sample.mean_coverage / 2:0.1f} \
+                    -c {hap_coverage:0.1f} \
                     -m {sample.mean_insert_size} \
                     -s {sample.std_insert_size} \
                     -l {art_read_length(sample.read_length, args.profile)} \
@@ -230,6 +238,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     -i {args.n} \
                     -z {z} \
                     -n {sample.name} \
+                    {stats_file_arg} \
                     {variant_vcf_path} {synthetic_bam_path}"
                 synth_result = subprocess.run(
                     synth_commandline, shell=True, stderr=subprocess.PIPE,

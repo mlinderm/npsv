@@ -16,6 +16,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/RefGenome.h"
 
+namespace {
 void assert_throw(const bool cond, const std::string& text,
                   const std::string& file, const int line) {
   if (!cond) {
@@ -25,6 +26,7 @@ void assert_throw(const bool cond, const std::string& text,
 }
 
 #define pyassert(cond, text) assert_throw(cond, text, __FILE__, __LINE__)
+}
 
 namespace npsv {
 namespace {

@@ -39,3 +39,10 @@ class SampleLoadTestSuite(unittest.TestCase):
             library_object.gc_normalized_coverage(0.4012345), 1.110604, places=3
         )
 
+        # Find the maximum GC normalization factor
+        max_gc = sample_object.max_gc_normalized_coverage(limit=2.0)
+        self.assertGreaterEqual(max_gc, 1.0)
+        self.assertLessEqual(max_gc, 2.0)
+
+        max_gc = sample_object.max_gc_normalized_coverage(limit=2.0, start=0.2, stop=0.8)
+        print(max_gc)
