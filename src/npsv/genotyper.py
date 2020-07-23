@@ -68,10 +68,12 @@ ABSOLUTE_FEATURES = ["REF_SPLIT", "ALT_SPLIT", "REF_SPAN", "ALT_SPAN", "COVG"]
 MAHAL_FEATURES = [
     "INSERT_LOWER",
     "INSERT_UPPER",
+    # "DHFC",
+    # "DHBFC",
     "DHFFC",
     "REF_READ_REL",
     "ALT_READ_REL",
-    "REF_READ_REL",
+    "REF_SPAN_REL",
     "ALT_SPAN_REL",
 ]
 
@@ -79,6 +81,8 @@ RF_FEATURES = [
     "SVLEN",
     "INSERT_LOWER",
     "INSERT_UPPER",
+    # "DHFC",
+    # "DHBFC",
     "DHFFC",
     "ALT_READ_REL",
     "ALT_SPAN_REL",
@@ -168,7 +172,7 @@ def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     x = scaler.fit_transform(x)
 
     # Build the model
-    clf = SVC(kernel="rbf")
+    clf = SVC(kernel="rbf", probability=True)
 
     # Fit the model
     clf.fit(x, y)
@@ -177,7 +181,7 @@ def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     real_x = scaler.transform(real_data[features])
     pred = clf.predict(real_x)
     prob = clf.predict_proba(real_x)
-    return (pref, prob)
+    return (pred, prob)
 
 
 def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
@@ -211,17 +215,21 @@ def add_derived_features(data):
     """Update data with derived features"""
     # Binomial probability features adapted from svviz2 and
     # https://www.sciencedirect.com/science/article/pii/S0092867418316337#sec4
-    total_reads = data["REF_SPLIT"] + data["ALT_SPLIT"]
+    
+    # Round since we can get fraction read counts when there are multiple breakpoints
+    ref_reads = np.ceil(data["REF_SPLIT"])
+    alt_reads = np.ceil(data["ALT_SPLIT"])
+    total_reads = ref_reads + alt_reads
     data["REF_READ_REL"] = np.where(
-        total_reads == 0, 0, data["REF_SPLIT"] / total_reads
+        total_reads == 0, 0, ref_reads / total_reads
     )
     data["ALT_READ_REL"] = np.where(
-        total_reads == 0, 0, data["ALT_SPLIT"] / total_reads
+        total_reads == 0, 0, alt_reads / total_reads
     )
 
-    data["PROB_HOMREF"] = binom.pmf(data["ALT_SPLIT"], total_reads, 0.05)
-    data["PROB_HET"] = binom.pmf(data["ALT_SPLIT"], total_reads, 0.5)
-    data["PROB_HOMALT"] = binom.pmf(data["ALT_SPLIT"], total_reads, 0.95)
+    data["PROB_HOMREF"] = binom.pmf(alt_reads, total_reads, 0.05)
+    data["PROB_HET"] = binom.pmf(alt_reads, total_reads, 0.5)
+    data["PROB_HOMALT"] = binom.pmf(alt_reads, total_reads, 0.95)
 
     total_span = data["REF_SPAN"] + data["ALT_SPAN"]
     data["REF_SPAN_REL"] = np.where(total_span == 0, 0, data["REF_SPAN"] / total_span)
@@ -291,6 +299,9 @@ def genotype_vcf(
         desired_features = set(RF_FEATURES)
     else:
         raise NotImplementedError(f"Unknown classifier type: {args.classifier}")
+    if args.local:
+        # Remove SVLEN from local model (since it should be all the same)
+        desired_features.difference_update("SVLEN")
     features = list(desired_features & set(sim_data) & set(real_data))
     logging.info("Genotyping with features: %s", ", ".join(features))
 
@@ -311,9 +322,9 @@ def genotype_vcf(
             "Building global %s classifier based on simulated data", args.classifier
         )
         if args.classifier == "svm":
-            pred, _ = svm_classify(downsample_sim_data, real_data, features=features)
+            pred, prob = svm_classify(downsample_sim_data, real_data, features=features)
         elif args.classifier == "rf":
-            pred, _ = rf_classify(downsample_sim_data, real_data, features=features)
+            pred, prob = rf_classify(downsample_sim_data, real_data, features=features)
         else:
             raise NotImplementedError(f"Unknown classifier type: {args.classifier}")
 
@@ -462,7 +473,7 @@ def genotype_vcf(
                         "Genotyping error for %s: %s", variant_descriptor(record), e
                     )
                     pred = None
-                call = pred_to_vcf(real_group, pred.item(0), prob[0,], dm2=mahal_score)
+                call = pred_to_vcf(real_group, pred.item(0) if pred is not None else None, prob[0,], dm2=mahal_score)
 
             output_file.write("\t" + call)
 
