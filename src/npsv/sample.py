@@ -280,10 +280,14 @@ class Sample(object):
             rg_to_lib = {}
 
             # pylint: disable=no-member
-            with pysam.AlignmentFile(bam_path or bam_info["bam"], "rb") as bam_file:
-                for readgroup in bam_file.header["RG"]:
-                    library_dict[readgroup.get("LB", NO_LIB_LABEL)] = library_object
-                    rg_to_lib[readgroup["ID"]] = library_object
+            bam_path = bam_path or bam_info["bam"]
+            if os.path.exists(bam_path):
+                with pysam.AlignmentFile(bam_path, "rb") as bam_file:
+                    for readgroup in bam_file.header["RG"]:
+                        library_dict[readgroup.get("LB", NO_LIB_LABEL)] = library_object
+                        rg_to_lib[readgroup["ID"]] = library_object
+            else:
+                library_dict[NO_LIB_LABEL] = library_object
 
             return cls(
                 bam_info["sample"],
@@ -352,6 +356,14 @@ class Sample(object):
             self.get_library(read_group).gc_normalized_coverage(gc_fraction)
             * self.mean_coverage
         )
+
+    def gc_normalized_coverage(self, gc_fraction: float, read_group: str=None) -> float:
+        return self.get_library(read_group).gc_normalized_coverage(gc_fraction)
+
+    def max_gc_normalized_coverage(self, limit=2.0, read_group: str = None) -> float:
+        library = self.get_library(read_group)
+        max_actual = max([library.gc_normalized_coverage(gc) for gc in np.arange(0, 1.0, 0.01)])
+        return min(max_actual, limit)
 
     def chrom_mean_coverage(self, chrom: str, read_group: str = None) -> float:
         """Return mean coverage for specific chromosome

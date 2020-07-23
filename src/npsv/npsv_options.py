@@ -17,9 +17,6 @@ def add_random_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         required=True,
     )
     parser.add_argument(
-        "--size", action="store", type=int, default=300, help="Size of variants"
-    )
-    parser.add_argument(
         "--use_X", action="store_true", default=False, help="Include X chromosome"
     )
     parser.add_argument(
@@ -188,5 +185,15 @@ def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         help="Minimum consensus repeat length to consider when proposing variants",
         type=int,
         default=4,
+    )
+    return parser
+
+def add_simulation_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        "--max_gc_norm_covg",
+        dest="max_gc_norm_covg",
+        help="Max GC normalized coverage",
+        type=float,
+        default=2.0,
     )
     return parser

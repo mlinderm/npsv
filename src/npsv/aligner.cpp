@@ -16,6 +16,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/RefGenome.h"
 
+namespace {
 void assert_throw(const bool cond, const std::string& text,
                   const std::string& file, const int line) {
   if (!cond) {
@@ -25,6 +26,7 @@ void assert_throw(const bool cond, const std::string& text,
 }
 
 #define pyassert(cond, text) assert_throw(cond, text, __FILE__, __LINE__)
+}
 
 namespace npsv {
 namespace {
@@ -373,7 +375,7 @@ void Realigner::Realign(const sl::BamRecord& read) {
   alt_.Align(read, insert_size_dist_);
 }
 
-py::dict Realigner::CountAlignments(const std::string& bam_path,
+std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::string> > > Realigner::CountAlignments(const std::string& bam_path,
                                     const std::string& rl_region,
                                     const std::string& al_region,
                                     py::kwargs kwargs) {
@@ -408,6 +410,14 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
   }
 
   int rl_reads = 0, al_reads = 0, rr_reads = 0, ar_reads = 0, amb_reads = 0;
+  
+  // Track the read names overlapping each breakpoint
+  std::map<std::string, std::vector<std::string> > overlap_read_names {
+    { "rl", std::vector<std::string>() },
+    { "rr", std::vector<std::string>() },
+    { "al", std::vector<std::string>() },
+    { "ar", std::vector<std::string>() },
+  };
 
   // Open the input BAM/SAM/CRAM and any output files
   sl::BamReader reader;
@@ -517,13 +527,25 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
 
       auto delta = max_alt.QualityScore() - max_ref.QualityScore();
       if (max_alt.HasOverlap() && delta > min_score_delta) {
-        if (al_ov.HasOverlap()) al_reads += 1;
-        if (ar_ov.HasOverlap()) ar_reads += 1;
+        if (al_ov.HasOverlap()) {
+          al_reads += 1;
+          overlap_read_names["al"].emplace_back(alt_iter->first);
+        }
+        if (ar_ov.HasOverlap()) {
+          ar_reads += 1;
+          overlap_read_names["ar"].emplace_back(alt_iter->first);
+        }
 
         if (overlap_writer.IsOpen()) max_alt.PushTaggedReads(overlap_reads);
       } else if (max_ref.HasOverlap() && delta < -min_score_delta) {
-        if (rl_ov.HasOverlap()) rl_reads += 1;
-        if (rr_ov.HasOverlap()) rr_reads += 1;
+        if (rl_ov.HasOverlap()) {
+          rl_reads += 1;
+          overlap_read_names["rl"].emplace_back(ref_iter->first);
+        }
+        if (rr_ov.HasOverlap()) {
+          rr_reads += 1;
+          overlap_read_names["rr"].emplace_back(ref_iter->first);
+        }
 
         if (overlap_writer.IsOpen()) max_ref.PushTaggedReads(overlap_reads);
       } else {
@@ -547,13 +569,14 @@ py::dict Realigner::CountAlignments(const std::string& bam_path,
     overlap_writer.BuildIndex();
   }
 
-  auto results = py::dict();
+  std::map<std::string,int> results;
   results["rl_reads"] = rl_reads;
   results["rr_reads"] = rr_reads;
   results["al_reads"] = al_reads;
   results["ar_reads"] = ar_reads;
   results["amb_reads"] = amb_reads;
-  return results;
+  
+  return std::make_tuple(results, overlap_read_names);
 }
 
 namespace test {

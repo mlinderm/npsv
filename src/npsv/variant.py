@@ -1,37 +1,7 @@
 import os, subprocess, tempfile, textwrap
+from backports.cached_property import cached_property
 import vcf
 import pysam
-
-
-def is_precise(record: vcf.model._Record):
-    """Return true if SV has precise breakpoints"""
-    # PyVCF approach for is_sv_precise is not flexible enough
-    assert record.is_sv
-    return not (
-        record.INFO.get("IMPRECISE") is not None
-        or record.INFO.get("CIPOS") is not None
-        or record.INFO.get("CIEND") is not None
-    )
-
-
-def get_ci(record: vcf.model._Record, key: str, default_ci: int):
-    """Get SV confidence interval or default for VCF record
-    
-    Arguments:
-        record {vcf.model._Record} -- VCF SV record
-        key {str} -- CI INFO key
-        default_ci {int} -- Default value for CI if missing
-    
-    Returns:
-        list -- Confidence interval
-    """
-    try:
-        return [int(val) for val in record.INFO[key]]
-    except KeyError:
-        if is_precise(record):
-            return [0, 0]
-        else:
-            return [-default_ci, default_ci]
 
 
 def variant_descriptor(record: vcf.model._Record):
@@ -54,11 +24,12 @@ def overwrite_reader_samples(vcf_reader: vcf.Reader, samples):
 
 
 class Variant(object):
-    def __init__(self, record):
+    def __init__(self, record, reference):
         self.record = record
         # Make sure every variant has a unique ID
         if self.record.ID is None:
             self.record.ID = variant_descriptor(record)
+        self.reference = reference
 
     @property
     def chrom(self):
@@ -76,6 +47,10 @@ class Variant(object):
     def end(self):
         """1-indexed closed end"""
         return int(self.record.sv_end)
+
+    @property
+    def subtype(self):
+        raise NotImplementedError()
 
     @property
     def is_precise(self):
@@ -124,35 +99,54 @@ class Variant(object):
         """Return 1-indexed fully closed region"""
         return f"{self.record.CHROM}:{self.end+1+left_flank}-{self.end+right_flank}"
 
-    def reference_sequence(self, args, region=None, flank=0):
+    def reference_sequence(self, region=None, flank=0):
         try:
             if region is None:
                 region = self.region_string(flank)
 
             # pylint: disable=no-member
-            with pysam.FastaFile(args.reference) as ref_fasta:
+            with pysam.FastaFile(self.reference) as ref_fasta:
                 ref_seq = ref_fasta.fetch(region=region)
                 return ref_seq
         except ValueError as err:
             print(region)
             raise err
 
+    @cached_property
+    def alt_gc_fraction(self):        
+        gc = 0
+        alignable_bases = 0
+        for base in self.reference_sequence(flank=0):
+            if base == "G" or base == "C" or base == "g" or base == "c":
+                gc += 1
+                alignable_bases += 1
+            elif base != "N" and base != "n":
+                alignable_bases += 1
+        if alignable_bases > 0:
+            return float(gc) / alignable_bases, alignable_bases
+        else:
+            return 0., 0
+
     def to_minimal_vcf(self, args):
         raise NotImplementedError()
 
     @classmethod
-    def from_pyvcf(cls, record):
+    def from_pyvcf(cls, record, reference):
         if not record.is_sv:
             return None
 
         kind = record.var_subtype
         if kind.startswith("DEL"):
-            return DeletionVariant(record)
+            return DeletionVariant(record, reference)
 
 
 class DeletionVariant(Variant):
-    def __init__(self, record):
-        Variant.__init__(self, record)
+    def __init__(self, record, reference):
+        Variant.__init__(self, record, reference)
+
+    @property
+    def subtype(self):
+        return self.record.var_subtype
 
     @property
     def is_deletion(self):
@@ -234,7 +228,7 @@ class DeletionVariant(Variant):
     ):
         # TODO: Normalize ref and alt contig lengths
         region = self.region_string(args.flank)
-        ref_seq = self.reference_sequence(args, region=region)
+        ref_seq = self.reference_sequence(region=region)
 
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
@@ -269,7 +263,7 @@ class DeletionVariant(Variant):
 
 def consensus_fasta(args, input_vcf: str, output_file):
     record = next(vcf.Reader(filename=input_vcf))
-    variant = Variant.from_pyvcf(record)
+    variant = Variant.from_pyvcf(record, args.reference)
     variant.synth_fasta(
         args,
         allele_fasta=output_file,

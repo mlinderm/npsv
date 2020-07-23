@@ -227,9 +227,9 @@ class Realigner {
   void Clear();
   void Realign(const sl::BamRecord& read);
 
-  py::dict CountAlignments(const std::string& bam_path,
-                           const std::string& rl_region,
-                           const std::string& al_region, py::kwargs kwargs);
+  std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::string> > >
+  CountAlignments(const std::string& bam_path, const std::string& rl_region,
+                  const std::string& al_region, py::kwargs kwargs);
 
  private:
   InsertSizeDistribution insert_size_dist_;

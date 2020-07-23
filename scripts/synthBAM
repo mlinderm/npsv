@@ -6,6 +6,7 @@ REFERENCE=human_g1k_v37.fasta
 GENOME="${REFERENCE/%fasta/genome}"
 SHAREDREF=
 SAMPLE=
+STATSFILE=
 
 FLANK=1000
 COVERAGE=20
@@ -38,10 +39,11 @@ Options:
   -f integer    Flank size, default: $FLANK
   -i integer    Number of samples in output SAM/BAM, default: $SAMPLES
   -n string     Sample name, default: undefined
+  -j FILE       NPSV stats file for GC normalized coverage, default: undefined       
 EOF
 }
 
-while getopts "hR:S:c:m:s:t:l:p:z:f:i:p:n:g:" Option
+while getopts "hR:S:c:m:s:t:l:p:z:f:i:p:n:g:j:" Option
 do
     case $Option in
         R)
@@ -82,6 +84,9 @@ do
             ;;
         g)
             GENOME=$OPTARG
+            ;;
+        j)
+            STATSFILE=$OPTARG
             ;;
         h)
             usage
@@ -146,25 +151,31 @@ do
     # Generate synthetic reads reads1.fq and reads2.fq. art_illumina use time in seconds for seed which can result in identical seeds for data.
     READS_PREFIX=$TMPDIR/reads.synth${s}
     art_illumina -q -i "$FASTA" -o "$READS_PREFIX" -sam -ss "$PROFILE" -l "$LENGTH" -f "$COVERAGE" -p -m "$FRAGMEAN" -s "$FRAGSD" -sp -rs $(od -An -tu4 -N4 /dev/urandom) 1>&2
-
-    # Produce BAM (with header for both potential sequences) with synthetic reads
-    SYNTHBAM=$TMPDIR/synth${s}.bam
-    sed 's/LN:0/LN:1000000/' "${READS_PREFIX}.sam" | \
-    awk -v sample=$s -v sm="$SM" \
-        '{ print; } /^@HD/ { print "@RG","ID:synth" sample,"LB:synth" sample,"PL:illumina","SM:" sm,"PU:ART"; }' OFS=$'\t' | \
-    samtools view -S -u - | sambamba sort -q -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$SYNTHBAM" /dev/stdin
+    
     >&2 echo "Generating aligned BAM"
     # Generate synthetic aligned BAM using minimal, but representative, pipeline
     # This pipeline should be modified to make the simulated pipeline similar to the
     # the pipeline used with the actual data
     ALIGNEDBAM=$TMPDIR/aligned${s}.bam
-    bwa mem -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
-        -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
-        "$SHAREDREF" \
-        "${READS_PREFIX}1.fq" "${READS_PREFIX}2.fq" | \
-    samblaster -q -M --addMateTags | \
-    samtools view -S  -u  - | \
-    sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
+    if [[ -z $STATSFILE ]]; then
+        bwa mem -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
+            -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
+            "$SHAREDREF" \
+            "${READS_PREFIX}1.fq" "${READS_PREFIX}2.fq" | \
+        samblaster -q -M --addMateTags | \
+        samtools view -S -u  - | \
+        sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
+    else
+        # Downsample reads based on GC fraction
+        npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam"  | \
+        bwa mem -p -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
+            -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
+            "$SHAREDREF" \
+            /dev/stdin | \
+        samblaster -q -M --addMateTags | \
+        samtools view -S -u  - | \
+        sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
+    fi
 done
 
 if [[ "$SAMPLES" -gt 1 ]]; then

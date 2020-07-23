@@ -1,48 +1,7 @@
 import argparse, io, sys, tempfile, unittest
 from unittest.mock import patch
 import vcf.model
-from npsv.variant import Variant, is_precise, get_ci
-
-
-class VariantHelpersTestSuite(unittest.TestCase):
-    """Variant helper functions"""
-
-    def test_ci_for_precise_variants(self):
-        vcf_file = io.StringIO(
-            """##fileformat=VCFv4.1
-##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
-##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
-##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
-##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
-##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
-##ALT=<ID=DEL,Description="Deletion">
-#CHROM POS ID REF ALT QUAL FILTER INFO
-1 2827694 rs2376870 CGTGGATGCGGGGAC C . PASS SVTYPE=DEL;END=2827708;SVLEN=-14
-"""
-        )
-        for record in vcf.Reader(vcf_file):
-            self.assertTrue(record.is_sv)
-            self.assertTrue(is_precise(record))
-            self.assertEqual(get_ci(record, "CIPOS", 10), [0, 0])
-
-    def test_ci_for_imprecise_variants(self):
-        vcf_file = io.StringIO(
-            """##fileformat=VCFv4.1
-##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
-##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
-##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
-##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
-##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
-##ALT=<ID=DEL,Description="Deletion">
-#CHROM POS ID REF ALT QUAL FILTER INFO
-2 321682 . T <DEL> . PASS SVTYPE=DEL;END=321887;SVLEN=-205;CIPOS=-56,20
-"""
-        )
-        for record in vcf.Reader(vcf_file):
-            self.assertTrue(record.is_sv)
-            self.assertFalse(is_precise(record))
-            self.assertEqual(get_ci(record, "CIPOS", 10), [-56, 20])
-            self.assertEqual(get_ci(record, "CIEND", 10), [-10, 10])
+from npsv.variant import Variant
 
 
 class VariantClassTestSuite(unittest.TestCase):
@@ -61,7 +20,7 @@ class VariantClassTestSuite(unittest.TestCase):
         )
         for record in vcf.Reader(vcf_file):
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
             self.assertTrue(variant.is_precise)
             self.assertEqual(variant.get_ci("CIPOS", 10), [0, 0])
 
@@ -80,7 +39,7 @@ class VariantClassTestSuite(unittest.TestCase):
         )
         for record in vcf.Reader(vcf_file):
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
             self.assertFalse(variant.is_precise)
             self.assertEqual(variant.get_ci("CIPOS", 10), [-56, 20])
             self.assertEqual(variant.get_ci("CIEND", 10), [-10, 10])
@@ -114,12 +73,12 @@ class SimpleVariantTestSuite(unittest.TestCase):
         ) as mock_ref:
             record = next(vcf.Reader(self.vcf_file))
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args, line_width=sys.maxsize)
             self.assertEqual(ref_contig, "1_899922_899993")
             self.assertEqual(alt_contig, "1_899922_899993_alt")
-            mock_ref.assert_called_once_with(self.args, region="1:899922-899993")
+            mock_ref.assert_called_once_with(region="1:899922-899993")
 
             with open(fasta_path, "r") as fasta:
                 lines = [line.strip() for line in fasta]
@@ -140,14 +99,14 @@ class SimpleVariantTestSuite(unittest.TestCase):
         ) as mock_ref:
             record = next(vcf.Reader(self.vcf_file))
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(
                 self.args, ref_contig="ref", alt_contig="alt", line_width=sys.maxsize
             )
             self.assertEqual(ref_contig, "ref")
             self.assertEqual(alt_contig, "alt")
-            mock_ref.assert_called_once_with(self.args, region="1:899922-899993")
+            mock_ref.assert_called_once_with(region="1:899922-899993")
 
             with open(fasta_path, "r") as fasta:
                 lines = [line.strip() for line in fasta]
@@ -163,14 +122,14 @@ class SimpleVariantTestSuite(unittest.TestCase):
         ) as mock_ref:
             record = next(vcf.Reader(self.vcf_file))
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(
                 self.args, ac=0, ref_contig="ref", alt_contig="alt", line_width=sys.maxsize
             )
             self.assertEqual(ref_contig, "ref")
             self.assertEqual(alt_contig, "alt")
-            mock_ref.assert_called_once_with(self.args, region="1:899922-899993")
+            mock_ref.assert_called_once_with(region="1:899922-899993")
 
             with open(fasta_path, "r") as fasta:
                 lines = [line.strip() for line in fasta]
@@ -190,14 +149,14 @@ class SimpleVariantTestSuite(unittest.TestCase):
         ) as mock_ref:
             record = next(vcf.Reader(self.vcf_file))
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(
                 self.args, ac=2, ref_contig="ref", alt_contig="alt", line_width=sys.maxsize
             )
             self.assertEqual(ref_contig, "ref")
             self.assertEqual(alt_contig, "alt")
-            mock_ref.assert_called_once_with(self.args, region="1:899922-899993")
+            mock_ref.assert_called_once_with(region="1:899922-899993")
 
             with open(fasta_path, "r") as fasta:
                 lines = [line.strip() for line in fasta]
@@ -230,7 +189,7 @@ class ComplexVariantTestSuite(unittest.TestCase):
     def test_breakpoints(self):
         record = next(vcf.Reader(self.vcf_file))
         self.assertTrue(record.is_sv)
-        variant = Variant.from_pyvcf(record)
+        variant = Variant.from_pyvcf(record, None)
         self.assertTrue(variant.is_deletion)
         self.assertEqual(
             variant.alt_length,
@@ -247,10 +206,10 @@ class ComplexVariantTestSuite(unittest.TestCase):
         ) as mock_ref:
             record = next(vcf.Reader(self.vcf_file))
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args, line_width=sys.maxsize)
-            mock_ref.assert_called_once_with(self.args, region="4:20473846-20474270")
+            mock_ref.assert_called_once_with(region="4:20473846-20474270")
 
             with open(fasta_path, "r") as fasta:
                 lines = [line.strip() for line in fasta]

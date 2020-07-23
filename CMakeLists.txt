@@ -25,7 +25,7 @@ add_subdirectory(lib/pybind11)
 set(SOURCE_DIR "src/npsv")
 
 include_directories(${SOURCE_DIR} ${SEQLIB_INCLUDE_DIRS})
-set(SOURCES "${SOURCE_DIR}/aligner.cpp" "${SOURCE_DIR}/bindings.cpp")
+set(SOURCES "${SOURCE_DIR}/aligner.cpp" "${SOURCE_DIR}/simulation.cpp" "${SOURCE_DIR}/bindings.cpp")
 
 # Add bindings here
 pybind11_add_module(npsva ${SOURCES})

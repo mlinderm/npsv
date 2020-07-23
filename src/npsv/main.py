@@ -5,13 +5,13 @@ from shlex import quote
 import pysam
 import vcf
 from npsv.npsv_options import *
-from npsv.variant import variant_descriptor, write_record_to_indexed_vcf
+from npsv.variant import Variant, variant_descriptor, write_record_to_indexed_vcf
 from npsv.feature_extraction import (
     extract,
+    extract_variant_features,
     header,
-    Variant,
 )
-from npsv.random_variants import random_variants
+from npsv.random_variants import random_deletions
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
 import ray
@@ -94,6 +94,14 @@ def make_argument_parser():
     synth_options.add_argument(
         "--profile", help="ART profile", type=str, default="HS25"
     )
+    synth_options.add_argument(
+        "--covg-gc-bias",
+        dest="covg_gc_bias",
+        help="Model GC bias in simulated coverage",
+        action="store_true",
+        default=False,
+    )
+    add_simulation_options(synth_options)
 
     # Options used by "sub tools"
     data_options = parser.add_argument_group()
@@ -147,29 +155,30 @@ def ray_iterator(obj_ids):
 
 
 @ray.remote
-def simulate_deletion(args, sample, record, variant_vcf_path, description):
-    # logging.info(f"Extracting features for {description}")
-    out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
+def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
+    extract_args = argparse.Namespace(**vars(args))
+    setattr(extract_args, "header", False)
+    setattr(extract_args, "threads", 1)
 
-    # In correctly formatted VCF, POS is first base of event when zero-indexed, while
-    # END is 1-indexed closed end or 0-indexed half-open end
-    pos = record.POS
-    end = int(record.sv_end)
-    event_length = end - pos
+    sim_out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
+    real_out_file = open(os.path.join(args.output, description + ".real.tsv"), "w")
 
+    # Extract features from randomly sampled variants as null model
     if args.sim_ref:
         # Generate the null model via simulation
         simulated_ACs = [0, 1, 2]
     else:
+        simulated_ACs = [1, 2]
+
         # Generate random variants as the null model
         random_vcf_path = os.path.join(args.output, description + ".random.vcf")
         with open(random_vcf_path, "w") as random_vcf_file:
-            random_variants(
+            random_deletions(
                 args.reference,
                 args.genome,
                 args.gaps,
                 random_vcf_file,
-                size=event_length,
+                size=variant.event_length,
                 n=args.n,
                 use_X=args.use_X,
                 only_sex=args.only_sex,
@@ -177,41 +186,37 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
             )
 
         # Extract features from the random data
-        random_extract_args = argparse.Namespace(**vars(args))
-        setattr(random_extract_args, "header", False)
-        setattr(random_extract_args, "threads", 1)
         extract(
-            random_extract_args,
+            extract_args,
             random_vcf_path,
             args.bam,
             sample=sample,
             ac=0,
-            out_file=out_file,
-            force_chrom=record.CHROM,
-            force_pos=pos,
-            force_end=end,
+            out_file=sim_out_file,
+            force_variant=variant,
             insert_hist=True,
         )
 
-        simulated_ACs = [1, 2]
-
     # Extract features from synthetic data.
-    synth_extract_args = argparse.Namespace(**vars(args))
-    setattr(synth_extract_args, "header", False)
-    setattr(synth_extract_args, "threads", 1)
 
     # Generate FASTA path once (can be reused by realigner for every replicate)
-    variant = Variant.from_pyvcf(record)
     fasta_path, ref_contig, alt_contig = variant.synth_fasta(args)
+
+    # Check if shared reference is available
+    shared_ref_arg = ""
+    if check_if_bwa_index_loaded(args.reference):
+        shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
+
+    stats_file_arg = ""
+    hap_coverage = sample.mean_coverage / 2
+    if args.covg_gc_bias and args.stats_path is not None:
+        # Use the BAM stats to model GC bias in the simulation
+        stats_file_arg = f"-j {quote(args.stats_path)}"
+        hap_coverage *= sample.max_gc_normalized_coverage(limit=args.max_gc_norm_covg)
 
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
-            # Check if shared reference is available
-            shared_ref_arg = ""
-            if check_if_bwa_index_loaded(args.reference):
-                shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
-
             # Synthetic data generation seems to fail randomly for some variants
             @retry(tries=2)
             def gen_synth_bam():
@@ -221,7 +226,7 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     -R {quote(args.reference)} \
                     {shared_ref_arg} \
                     -g {quote(args.genome)} \
-                    -c {sample.mean_coverage / 2:0.1f} \
+                    -c {hap_coverage:0.1f} \
                     -m {sample.mean_insert_size} \
                     -s {sample.std_insert_size} \
                     -l {art_read_length(sample.read_length, args.profile)} \
@@ -230,13 +235,18 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     -i {args.n} \
                     -z {z} \
                     -n {sample.name} \
+                    {stats_file_arg} \
                     {variant_vcf_path} {synthetic_bam_path}"
                 synth_result = subprocess.run(
                     synth_commandline, shell=True, stderr=subprocess.PIPE,
                 )
-                if synth_result.returncode != 0 or not os.path.exists(synthetic_bam_path):
-                    raise RuntimeError(f"Synthesis script failed to generate {synthetic_bam_path}")
-            
+                if synth_result.returncode != 0 or not os.path.exists(
+                    synthetic_bam_path
+                ):
+                    raise RuntimeError(
+                        f"Synthesis script failed to generate {synthetic_bam_path}"
+                    )
+
             gen_synth_bam()
 
         for i in range(1, args.n + 1):
@@ -260,24 +270,37 @@ def simulate_deletion(args, sample, record, variant_vcf_path, description):
                     single_sample_bam_file.name, "-b"
                 )
 
-                extract(
-                    synth_extract_args,
-                    variant_vcf_path,
+                features = extract_variant_features(
+                    extract_args,
+                    variant,
                     single_sample_bam_file.name,
-                    ac=z,
-                    sample=sample,
-                    out_file=out_file,
+                    sample,
                     input_fasta=fasta_path,
                     ref_contig=ref_contig,
                     alt_contig=alt_contig,
                     insert_hist=args.insert_hist,
                 )
+                features.print_features(sim_out_file, ac=z)
             finally:
                 os.remove(single_sample_bam_file.name)
                 os.remove(single_sample_bam_file.name + ".bai")
 
-    out_file.close()
-    return out_file.name
+    # Extract features from real data
+    features = extract_variant_features(
+        extract_args,
+        variant,
+        args.bam,
+        sample,
+        input_fasta=fasta_path,
+        ref_contig=ref_contig,
+        alt_contig=alt_contig,
+        insert_hist=True,
+    )
+    features.print_features(real_out_file)
+
+    sim_out_file.close()
+    real_out_file.close()
+    return sim_out_file.name, real_out_file.name
 
 
 def main():
@@ -286,6 +309,7 @@ def main():
 
     logging.basicConfig(level=args.loglevel)
 
+    # Create any directories that are needed
     logging.info(
         f"Creating {args.output} output and {args.tempdir} temporary directories if they don't exist"
     )
@@ -322,14 +346,12 @@ def main():
     record_results = []
     vcf_reader = vcf.Reader(filename=args.input)
     for record in tqdm(vcf_reader, desc="Preparing variants"):
+        variant = Variant.from_pyvcf(record, args.reference)
         # npsv currently only supports deletions
-        if not record.is_sv or record.var_subtype != "DEL":
+        if variant is None:
             continue
 
         description = variant_descriptor(record)
-        if record.ID is None:
-            # Update ID to be more meaningful
-            record.ID = description
 
         # Construct single variant VCF outside of worker so we don't need to pass the reader into the thread
         variant_vcf_path = os.path.join(args.output, description + ".vcf")
@@ -342,37 +364,31 @@ def main():
             variant_vcf_path += ".gz"
 
         record_results.append(
-            simulate_deletion.remote(
-                args, sample, record, variant_vcf_path, description
+            simulate_and_extract.remote(
+                args, sample, variant, variant_vcf_path, description
             )
         )
 
-    # Concatenate output files to create final result
+    # Concatenate output files to create feature files
     sim_tsv_path = os.path.join(args.output, args.prefix + ".sim.tsv")
-    logging.info("Concatenating results in %s", sim_tsv_path)
+    real_tsv_path = os.path.join(args.output, args.prefix + ".real.tsv")
+    logging.info("Extracting features (to %s and %s)", sim_tsv_path, real_tsv_path)
+
     with open(sim_tsv_path, "w") as file:
         header(out_file=file, ac=True)
-    with open(sim_tsv_path, "ab") as sink:
-        for result in tqdm(
+    with open(real_tsv_path, "w") as file:
+        header(out_file=file, ac=True)
+
+    with open(sim_tsv_path, "ab") as sim_sink, open(real_tsv_path, "ab") as real_sink:
+        for sim_result, real_result in tqdm(
             ray_iterator(record_results),
             total=len(record_results),
-            desc="Simulating variants",
+            desc="Extracting features",
         ):
-            with open(result, "rb") as source:
-                shutil.copyfileobj(source, sink)
-
-    # Finished generating features from simulated data
-
-    # Extract features from "real" data
-    with open(
-        os.path.join(args.output, args.prefix + ".real.tsv"), "w"
-    ) as real_tsv_file:
-        logging.info(
-            "Extracting features from 'real' data (output in %s)", real_tsv_file.name
-        )
-        real_args = argparse.Namespace(**vars(args))
-        setattr(real_args, "header", True)
-        extract(real_args, args.input, args.bam, out_file=real_tsv_file, sample=sample, insert_hist=True)
+            with open(sim_result, "rb") as source:
+                shutil.copyfileobj(source, sim_sink)
+            with open(real_result, "rb") as source:
+                shutil.copyfileobj(source, real_sink)
 
     # Perform genotyping
     with open(os.path.join(args.output, args.prefix + ".npsv.vcf"), "w") as gt_vcf_file:
@@ -382,7 +398,7 @@ def main():
             genotyping_args,
             args.input,
             sim_tsv_path,
-            real_tsv_file.name,
+            real_tsv_path,
             gt_vcf_file,
             samples=[sample.name],
         )
