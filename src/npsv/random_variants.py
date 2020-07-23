@@ -29,7 +29,7 @@ def sample_starts(contigs, size, n):
     )
 
 
-def generate_n_variants(contigs, size, n, gaps, flank=0):
+def generate_n_deletions(contigs, size, n, gaps, flank=0):
     # Create variant regions, checking if they overlap known gaps
     variants = []
     while len(variants) < n:
@@ -46,7 +46,7 @@ def generate_n_variants(contigs, size, n, gaps, flank=0):
     return variants
 
 
-def random_variants(
+def random_deletions(
     ref_path,
     genome_path,
     gap_path,
@@ -55,7 +55,6 @@ def random_variants(
     n=1,
     use_X=False,
     only_sex=False,
-    variant_path=None,
     flank=0,
 ):
     # Filter contigs down as specified
@@ -71,22 +70,19 @@ def random_variants(
 
     gaps = pysam.TabixFile(gap_path)  # pylint: disable=no-member
 
-    # If a VCF is specified, generate variants matching those in the VCF
-    if variant_path is not None:
+    
+    # Generate and sort variants in reference order (using linear coordinate)
+    try:
         variants = []
-        for record in vcf.Reader(filename=variant_path):
-            if not record.is_sv or record.var_subtype != "DEL":
-                continue
-            event_length = int(record.sv_end) - record.POS
-            variants += generate_n_variants(contigs, event_length, 1, gaps, flank=flank)
-    else:
-        variants = generate_n_variants(contigs, size, n, gaps, flank=flank)
-
-    # Sort variants in reference order (using linear coordinate)
+        for event_size in size:
+            variants += generate_n_deletions(contigs, event_size, n, gaps, flank=flank)
+    except TypeError:
+        variants = generate_n_deletions(contigs, size, n, gaps, flank=flank)
     variants.sort(key=itemgetter(3))
 
     ref_reader = pysam.FastaFile(ref_path)  # pylint: disable=no-member
 
+    # Write VCF with variants
     print(
         """\
 ##fileformat=VCFv4.1
@@ -108,7 +104,6 @@ def random_variants(
         file=output_file,
     )
 
-    # Write VCF with variants
     for variant in variants:
         # Zero-indexed start is the same as the 1-indexed padding base (need to subtract one to fetch padding base)
         ref = ref_reader.fetch(variant[0], variant[1] - 1, variant[1])
@@ -120,3 +115,22 @@ def random_variants(
     ref_reader.close()
     gaps.close()
 
+
+def random_variants(
+    variant_path,
+    ref_path,
+    genome_path,
+    gap_path,
+    output_file,
+    n=1,
+    use_X=False,
+    only_sex=False,
+    flank=0,
+):
+    sizes = []
+    for record in vcf.Reader(filename=variant_path):
+        if not record.is_sv or record.var_subtype != "DEL":
+            continue
+        event_length = int(record.sv_end) - record.POS
+        sizes.append(event_length) 
+    random_deletions(ref_path, genome_path, gap_path, output_file, size=sizes, n=n, use_X=use_X, only_sex=only_sex, flank=flank)

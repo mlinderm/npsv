@@ -334,15 +334,14 @@ def main():
         from .random_variants import random_variants
 
         random_variants(
+            args.input,
             args.reference,
             args.genome,
             args.gaps,
             args.output,
-            size=args.size,
             n=args.n,
             use_X=args.use_X,
             only_sex=args.only_sex,
-            variant_path=args.input,
         )
     elif args.command == "plot":
         from .plot import plot_features

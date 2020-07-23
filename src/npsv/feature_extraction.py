@@ -14,6 +14,7 @@ from npsv import npsva
 
 ZSCORE_THRESHOLD = 1.5
 
+
 def count_alleles_with_npsva(
     args,
     variant,
@@ -57,7 +58,9 @@ def count_alleles_with_npsva(
             ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
 
         # Use or ignore actual density data (e.g. if simulated data)
-        insert_size_density_dict = sample.insert_size_density().as_dict() if insert_hist else {}
+        insert_size_density_dict = (
+            sample.insert_size_density().as_dict() if insert_hist else {}
+        )
         realigner = npsva.Realigner(
             fasta_path,
             sample.mean_insert_size,
@@ -142,8 +145,8 @@ class Features(object):
 
     MISSING_DATA = "."
 
-    def __init__(self, record: vcf.model._Record, sample: Sample):
-        self.record = record
+    def __init__(self, variant: Variant, sample: Sample):
+        self.variant = variant
         self.sample = sample
 
     @property
@@ -155,16 +158,17 @@ class Features(object):
         (self.ref_reads, self.alt_reads) = value
 
     def print_features(
-        self, file, force_chrom=None, force_pos=None, force_end=None, ac=None
+        self, file, force_variant=None, ac=None
     ):
         # TODO: Rationalize the column and attribute names
+        print_variant = self.variant if force_variant is None else force_variant
         print(
-            self.record.CHROM if force_chrom is None else force_chrom,
-            self.record.POS if force_pos is None else force_pos,
-            self.record.sv_end if force_end is None else force_end,
-            self.record.var_subtype,
+            print_variant.chrom,
+            print_variant.pos,
+            print_variant.end,
+            print_variant.subtype,
             self.sample.name,
-            int(self.record.sv_end) - self.record.POS,
+            print_variant.event_length,
             getattr(self, "ref_span", Features.MISSING_DATA),
             getattr(self, "alt_span", Features.MISSING_DATA),
             getattr(self, "ref_reads", Features.MISSING_DATA),
@@ -231,101 +235,25 @@ def pad_vcf_alleles(args, input_vcf, output_vcf_file):
     record_vcf_writer.write_record(record)
 
 
-def extract(
+def extract_variant_features(
     args: argparse.Namespace,
-    input_vcf: str,
+    variant: Variant,
     input_bam: str,
-    out_file=sys.stdout,
+    sample: Sample,
     max_reads: int = None,
-    ac: int = None,
-    sample: Sample = None,
-    force_chrom: str = None,
-    force_pos: int = None,
-    force_end: int = None,
     input_fasta: str = None,
     ref_contig: str = "ref",
     alt_contig: str = "alt",
     insert_hist: bool = True,
 ):
-    """Extract and print deletion SV features for a VCF and BAM file
-
-    Args:
-        args (argparse.Namespace): Command line arguments
-        input_vcf (str): Path to VCF file
-        input_bam (str): Path to BAM file
-        out_file (file_object, optional): File to write features. Defaults to sys.stdout.
-        max_reads (int, optional): Max reads for feature extraction. Defaults to None.
-        ac (int, optional): Allele count for current features. Defaults to None.
-        sample (Sample, optional): Sample object. Defaults to None.
-        force_chrom (str, optional): Overwrite actual CHROM if defined. Defaults to None.
-        force_pos (int, optional): Overwrite actual POS if defined. Defaults to None.
-        force_end (int, optional): Overwrite actual END if defined. Defaults to None.
-
-    Raises:
-        ValueError: Missing argument
-    """
-    # Print header line as requested
-    if args.header:
-        header(out_file, ac)
-
-    if sample is not None:
-        pass
-    elif args.stats_path is not None:
-        sample = Sample.from_npsv(args.stats_path, bam_path=input_bam)
-    elif None not in (
-        args.fragment_mean,
-        args.fragment_sd,
-        args.read_length,
-        args.depth,
-    ):
-        sample = Sample.from_distribution(
-            input_bam,
-            args.fragment_mean,
-            args.fragment_sd,
-            args.read_length,
-            mean_coverage=args.depth,
-        )
-    else:
-        raise ValueError("Library distribution must be provided")
-
-
-    # Extract features for all SVs
-    bam_reader = pysam.AlignmentFile(input_bam, mode="rb")  # pylint: disable=no-member
-    vcf_reader = vcf.Reader(filename=input_vcf)
-    for record in vcf_reader:
-        if not record.is_sv:
-            logging.warning("SVTYPE missing for variant %s. Skipping.", record.ID)
-            continue
-
-        kind = record.var_subtype
-        if kind != "DEL":
-            logging.warning("Unsupported SVTYPE for variant %s. Skipping", record.ID)
-            continue
-
-        # TODO: This code is in 3+ places, try to consolidate
-        if record.ID is None:
-            # Update ID to be more meaningful
-            record.ID = variant_descriptor(record)
-
-        features = Features(record, sample)
-
-        # Determine coordinates as 0-indexed [pos, end)
-        # In correctly formatted VCF, POS is first base of event when zero-indexed, while
-        # END is 1-indexed closed end or 0-indexed half-open end
-        pos = record.POS
-        end = int(record.sv_end)
-        event_length = end - pos
-
-        ci_pos = get_ci(record, "CIPOS", default_ci=args.default_ci)
-        ci_end = get_ci(record, "CIEND", default_ci=args.default_ci)
+    with pysam.AlignmentFile(
+        input_bam, mode="rb"
+    ) as bam_reader:  # pylint: disable=no-member
+        features = Features(variant, sample)
 
         # -------------------------------------
         # Split-read evidence
         # -------------------------------------
-        variant = Variant.from_pyvcf(record)
-        if variant is None:
-            logging.warning("Unsupported variant type for %s. Skipping", record.ID)
-            continue
         ref_count, alt_count, *_ = count_alleles_with_npsva(
             args,
             variant,
@@ -344,11 +272,21 @@ def extract(
         # Paired-end evidence
         # -------------------------------------
 
+        # Determine coordinates as 0-indexed [pos, end)
+        # In correctly formatted VCF, POS is first base of event when zero-indexed, while
+        # END is 1-indexed closed end or 0-indexed half-open end
+        pos = variant.pos
+        end = variant.end
+        event_length = variant.event_length
+
+        ci_pos = variant.get_ci("CIPOS", default_ci=args.default_ci)
+        ci_end = variant.get_ci("CIEND", default_ci=args.default_ci)
+
         # Determine paired-end evidence regions
         # TODO: Switch to sample.search_distance
         pair_flank = 1000
 
-        left_id = right_id = bam_reader.gettid(record.CHROM)
+        left_id = right_id = bam_reader.gettid(variant.chrom)
         left_paired_span = (pos + ci_pos[0] - pair_flank - 1, pos + ci_pos[1])
         right_paired_span = (end + ci_end[0], end + ci_pos[1] + pair_flank)
 
@@ -361,7 +299,7 @@ def extract(
             gather_reads(
                 fragments,
                 bam_reader,
-                record.CHROM,
+                variant.chrom,
                 left_query_span,
                 max_reads=max_reads,
             )
@@ -372,14 +310,14 @@ def extract(
             gather_reads(
                 fragments,
                 bam_reader,
-                record.CHROM,
+                variant.chrom,
                 right_query_span,
                 max_reads=max_reads,
             )
         else:
             query_span = (pos + ci_pos[0] - pair_flank, end + ci_pos[1] + pair_flank)
             gather_reads(
-                fragments, bam_reader, record.CHROM, query_span, max_reads=max_reads
+                fragments, bam_reader, variant.chrom, query_span, max_reads=max_reads
             )
 
         # INSERT_UPPER and INSERT_LOWER adapted from:
@@ -465,7 +403,7 @@ def extract(
                 "-l",
                 str(args.min_anchor),
                 "-r",
-                f"{record.CHROM}:{start}-{stop}",
+                f"{variant.chrom}:{start}-{stop}",
                 bam_reader.filename,
             )
 
@@ -480,61 +418,117 @@ def extract(
             return mean_coverage, median_coverage
 
         # Use 1-indexed fully closed coordinates
-        coverage, _ = bases_in_region(record.CHROM, pos + 1, end)
+        coverage, _ = bases_in_region(variant.chrom, pos + 1, end)
         left_flank_coverage, _ = bases_in_region(
-            record.CHROM, pos - args.rel_coverage_flank + 1, pos
+            variant.chrom, pos - args.rel_coverage_flank + 1, pos
         )
         right_flank_coverage, _ = bases_in_region(
-            record.CHROM, end + 1, end + args.rel_coverage_flank
+            variant.chrom, end + 1, end + args.rel_coverage_flank
         )
 
         # Normalized coverage features adapted from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6479422/
 
         # Chromosomal normalized coverage
         features.coverage = coverage
-        features.dhfc = coverage / sample.chrom_mean_coverage(record.CHROM)
+        features.dhfc = coverage / sample.chrom_mean_coverage(variant.chrom)
 
         # GC normalized coverage
-
-        # TODO: Do this once if we can since it won't change 
-        # nucleotide_content columns: chrom, start, end, pct_at, pct_gc, num_A, num_C, num_G, num_T, num_N, num_oth, seq_len
-        # pylint: disable=unexpected-keyword-arg
-        nuc_content = bed.BedTool([(record.CHROM, pos, end)]).nucleotide_content(
-            fi=args.reference
-        )[0]
-        alignable_bases = (
-            int(nuc_content[11]) - int(nuc_content[10]) - int(nuc_content[9])
-        )
+        gc_fraction, alignable_bases = variant.alt_gc_fraction
         if alignable_bases > 0:
-            gc_fraction = (int(nuc_content[6]) + int(nuc_content[7])) / alignable_bases
             features.dhbfc = coverage / sample.gc_mean_coverage(gc_fraction)
         else:
             # TODO: What does it imply for other coverage features that there are zero alignable bases?
-            logging.warning("Zero alignable bases detected for variant %s", record.ID)
+            logging.warning("Zero alignable bases detected for variant %s", variant.id)
             features.dhbfc = 1.0
 
         # Flank normalized coverage
-        logging.debug(
-            "Coverage (left flank | event | right flank): %f | %f | %f",
-            left_flank_coverage,
-            coverage,
-            right_flank_coverage,
-        )
         mean_flank_coverage = (left_flank_coverage + right_flank_coverage) / 2
         if mean_flank_coverage > 0:
             features.dhffc = coverage / mean_flank_coverage
         else:
             features.dhffc = 1.0
 
-        # -------------------------------------
-        # Print features (including any derived features)
-        # -------------------------------------
-        features.print_features(
-            out_file,
-            force_chrom=force_chrom,
-            force_pos=force_pos,
-            force_end=force_end,
-            ac=ac,
+        return features
+
+
+def extract(
+    args: argparse.Namespace,
+    input_vcf: str,
+    input_bam: str,
+    out_file=sys.stdout,
+    max_reads: int = None,
+    ac: int = None,
+    sample: Sample = None,
+    force_variant: Variant = None,
+    insert_hist: bool = True,
+):
+    """Extract and print deletion SV features for a VCF and BAM file
+
+    Args:
+        args (argparse.Namespace): Command line arguments
+        input_vcf (str): Path to VCF file
+        input_bam (str): Path to BAM file
+        out_file (file_object, optional): File to write features. Defaults to sys.stdout.
+        max_reads (int, optional): Max reads for feature extraction. Defaults to None.
+        ac (int, optional): Allele count for current features. Defaults to None.
+        sample (Sample, optional): Sample object. Defaults to None.
+        force_variant (Variant, optional): Variant to determine feature variant columns. Defaults to None.
+        insert_hist (bool, optional): Use empirical insert size historgram. Defaults to True.
+
+    Raises:
+        ValueError: Missing argument
+    """
+    # Print header line as requested
+    if args.header:
+        header(out_file, ac)
+
+    if sample is not None:
+        pass
+    elif args.stats_path is not None:
+        sample = Sample.from_npsv(args.stats_path, bam_path=input_bam)
+    elif None not in (
+        args.fragment_mean,
+        args.fragment_sd,
+        args.read_length,
+        args.depth,
+    ):
+        sample = Sample.from_distribution(
+            input_bam,
+            args.fragment_mean,
+            args.fragment_sd,
+            args.read_length,
+            mean_coverage=args.depth,
+        )
+    else:
+        raise ValueError("Library distribution must be provided")
+
+    # Extract features for all SVs
+    vcf_reader = vcf.Reader(filename=input_vcf)
+    for record in vcf_reader:
+        if not record.is_sv:
+            logging.warning("SVTYPE missing for variant %s. Skipping.", record.ID)
+            continue
+
+        kind = record.var_subtype
+        if kind != "DEL":
+            logging.warning("Unsupported SVTYPE for variant %s. Skipping", record.ID)
+            continue
+
+        variant = Variant.from_pyvcf(record, args.reference)
+        features = extract_variant_features(
+            args,
+            variant,
+            input_bam,
+            sample,
+            max_reads=max_reads,
+            input_fasta=input_fasta,
+            ref_contig=ref_contig,
+            alt_contig=alt_contig,
+            insert_hist=insert_hist,
         )
 
-    bam_reader.close()
+        # Print features
+        features.print_features(
+            out_file, force_variant=force_variant, ac=ac,
+        )
+

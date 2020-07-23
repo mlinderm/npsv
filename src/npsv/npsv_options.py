@@ -17,9 +17,6 @@ def add_random_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         required=True,
     )
     parser.add_argument(
-        "--size", action="store", type=int, default=300, help="Size of variants"
-    )
-    parser.add_argument(
         "--use_X", action="store_true", default=False, help="Include X chromosome"
     )
     parser.add_argument(
