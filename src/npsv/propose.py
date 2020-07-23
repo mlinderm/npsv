@@ -1,9 +1,12 @@
-import collections, logging
+import collections, logging, sys
 import numpy as np
 from scipy.signal import peak_prominences, find_peaks
+from scipy.special import logsumexp
+from scipy.stats import chi2
 import vcf
 import pysam
 from .variant import Variant, variant_descriptor
+from .genotyper import MAHAL_FEATURES
 
 PEAK_FINDING_FLANK = 5
 ORIGINAL_KEY = "ORIGINAL"
@@ -138,6 +141,10 @@ def propose_variants(args, input_vcf: str, output_file):
             record += "\t."  # Define unknown genotypes for proposed variants
         print(record, file=output_file)
 
+def dm2_to_prob(score, df=len(MAHAL_FEATURES)):
+    with np.errstate(under="ignore"):
+        prob = chi2.logsf(score, df)
+        return np.exp(prob - logsumexp(prob))
 
 def refine_variants(args, input_vcf: str, output_file):
     """Identify the "best" representation for a variant
