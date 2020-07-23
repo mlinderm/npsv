@@ -49,7 +49,7 @@ def report_name(record: vcf.model._Record) -> List[str]:
     """Generate report names as created by svvi2"""
     # Match the scheme used in svviz2
     # https://github.com/nspies/svviz2/blob/44f7bfc75bf84c1db4563d9fd30bf20967d1c825/src/svviz2/app/variants.py#L259
-    id = record.ID or f"{record.CHROM}_{record.POS}_{record.sv_end}"
+    id = (record.ID or f"{record.CHROM}_{record.POS}_{record.sv_end}").replace(":","_").replace(";","")
     return [
         f"{id}.{record.var_subtype[:3].lower()}_{record.CHROM}_{record.POS-1}",
         f"{id}.{record.var_subtype[:3].lower()}_{record.CHROM}_{record.POS}",
