@@ -9,7 +9,7 @@ from pathlib import Path
 from shlex import quote
 from .sample import Sample
 from .fragment import SpanningFragments, gather_reads
-from .variant import get_ci, variant_descriptor, Variant, DeletionVariant
+from .variant import variant_descriptor, Variant, DeletionVariant
 from npsv import npsva
 
 ZSCORE_THRESHOLD = 1.5

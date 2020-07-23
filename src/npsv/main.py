@@ -94,6 +94,13 @@ def make_argument_parser():
     synth_options.add_argument(
         "--profile", help="ART profile", type=str, default="HS25"
     )
+    synth_options.add_argument(
+        "--covg-gc-bias",
+        dest="covg_gc_bias",
+        help="Model GC bias in simulated coverage",
+        action="store_true",
+        default=False,
+    )
     add_simulation_options(synth_options)
 
     # Options used by "sub tools"

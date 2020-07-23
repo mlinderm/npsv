@@ -44,5 +44,5 @@ class SampleLoadTestSuite(unittest.TestCase):
         self.assertGreaterEqual(max_gc, 1.0)
         self.assertLessEqual(max_gc, 2.0)
 
-        max_gc = sample_object.max_gc_normalized_coverage(limit=2.0, start=0.2, stop=0.8)
+        max_gc = sample_object.max_gc_normalized_coverage(limit=2.0)
         print(max_gc)

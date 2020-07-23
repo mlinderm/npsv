@@ -27,7 +27,7 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
     def test_count_alleles(self):
         for record in vcf.Reader(self.vcf_file):
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_2.bam")
             sample = Sample.from_distribution(
@@ -68,7 +68,7 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
     def test_overlap_bam(self):
         for record in vcf.Reader(self.vcf_file):
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_2.bam")
             sample = Sample.from_distribution(
@@ -137,7 +137,7 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
     def test_insert_distribution(self):
         for record in vcf.Reader(self.vcf_file):
             self.assertTrue(record.is_sv)
-            variant = Variant.from_pyvcf(record)
+            variant = Variant.from_pyvcf(record, None)
 
             input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_2.bam")
             sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), input_bam)
