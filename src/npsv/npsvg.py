@@ -158,6 +158,7 @@ def main():
         help="Force sample names when no calls in the file",
     )
     npsv_options.add_genotyping_options(parser_genotype)
+    npsv_options.add_hybrid_options(parser_genotype)
 
     # Plotting
     parser_plot = subparsers.add_parser("plot", help="Plot features")
@@ -239,6 +240,7 @@ def main():
         help="Output file",
     )
     npsv_options.add_propose_options(parser_propose)
+    npsv_options.add_hybrid_options(parser_propose)
 
     # Select among proposed alternate representations
     parser_refine = subparsers.add_parser(

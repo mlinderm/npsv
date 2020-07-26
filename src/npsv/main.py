@@ -102,6 +102,7 @@ def make_argument_parser():
         default=False,
     )
     add_simulation_options(synth_options)
+    add_hybrid_options(synth_options)
 
     # Options used by "sub tools"
     data_options = parser.add_argument_group()
@@ -160,6 +161,13 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     setattr(extract_args, "header", False)
     setattr(extract_args, "threads", 1)
 
+    # If using hybrid mode, only simulate the number of replicates needed for single model
+    # for variants larger than threshold
+    if variant.event_length >= args.hybrid_threshold:
+        replicates = args.downsample
+    else:
+        replicates = args.n
+
     sim_out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
     real_out_file = open(os.path.join(args.output, description + ".real.tsv"), "w")
 
@@ -179,7 +187,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                 args.gaps,
                 random_vcf_file,
                 size=variant.event_length,
-                n=args.n,
+                n=replicates,
                 use_X=args.use_X,
                 only_sex=args.only_sex,
                 flank=args.flank,
@@ -217,7 +225,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     for z in simulated_ACs:
         synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
         if not args.reuse or not os.path.exists(synthetic_bam_path):
-            # Synthetic data generation seems to fail randomly for some variants
+            # Synthetic data generation seems to fail randomly for some variants, so retry
             @retry(tries=2)
             def gen_synth_bam():
                 # Generate synthetic BAM file
@@ -232,7 +240,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                     -l {art_read_length(sample.read_length, args.profile)} \
                     -p {args.profile} \
                     -f {args.flank} \
-                    -i {args.n} \
+                    -i {replicates} \
                     -z {z} \
                     -n {sample.name} \
                     {stats_file_arg} \
@@ -249,7 +257,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
 
             gen_synth_bam()
 
-        for i in range(1, args.n + 1):
+        for i in range(1, replicates + 1):
             try:
                 single_sample_bam_file = tempfile.NamedTemporaryFile(
                     mode="wb", delete=False, suffix=".bam", dir=args.tempdir

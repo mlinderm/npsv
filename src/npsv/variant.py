@@ -131,7 +131,7 @@ class Variant(object):
         raise NotImplementedError()
 
     @classmethod
-    def from_pyvcf(cls, record, reference):
+    def from_pyvcf(cls, record, reference=None):
         if not record.is_sv:
             return None
 

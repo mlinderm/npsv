@@ -1,4 +1,4 @@
-import argparse
+import argparse, sys
 
 
 def add_random_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -148,7 +148,7 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
     parser.add_argument(
         "--downsample",
         type=int,
-        help="Number of simulated replicates per variant and zygosity in 'global' mode",
+        help="Number of simulated replicates per variant and zygosity in 'single model' mode",
         default=1,
     )
     parser.add_argument(
@@ -163,7 +163,15 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--hybrid-classifier",
+        dest="hybrid_classifier",
+        help="Classifier(s) to use for 'single model' in hybrid classifier",
+        type=str,
+        default="svm"
+    )
     return parser
+
 
 def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
@@ -188,6 +196,7 @@ def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
     )
     return parser
 
+
 def add_simulation_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--max_gc_norm_covg",
@@ -195,5 +204,16 @@ def add_simulation_options(parser: argparse.ArgumentParser) -> argparse.Argument
         help="Max GC normalized coverage",
         type=float,
         default=2.0,
+    )
+    return parser
+
+
+def add_hybrid_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        "--hybrid-threshold",
+        dest="hybrid_threshold",
+        help="Use 'single model' for all variants above this size",
+        type=int,
+        default=sys.maxsize,
     )
     return parser

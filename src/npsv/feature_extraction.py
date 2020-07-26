@@ -521,9 +521,6 @@ def extract(
             input_bam,
             sample,
             max_reads=max_reads,
-            input_fasta=input_fasta,
-            ref_contig=ref_contig,
-            alt_contig=alt_contig,
             insert_hist=insert_hist,
         )
 

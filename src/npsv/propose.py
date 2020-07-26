@@ -56,6 +56,9 @@ def propose_variants(args, input_vcf: str, output_file):
         assert variant.id, "Variant proposal requires all variants to have a unique ID"
         vcf_writer.write_record(variant.record)
 
+        if variant.event_length > args.hybrid_threshold:
+            continue
+
         # TODO? Require certain overlap?
         repeats = (
             simple_repeats_bed.fetch(
