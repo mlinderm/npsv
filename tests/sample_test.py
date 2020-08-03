@@ -8,12 +8,14 @@ class SampleLoadTestSuite(unittest.TestCase):
     def test_loads_npsv_json(self):
         json_path = os.path.join(FILE_DIR, "stats.json")
         bam_path = os.path.join(FILE_DIR, "1_1598414_1598580_DEL.bam")
+        ped_path = os.path.join(FILE_DIR, "trio.ped")
 
         # Override the BAM path to be specific to test file
-        sample_object = Sample.from_npsv(json_path, bam_path=bam_path)
+        sample_object = Sample.from_npsv(json_path, bam_path=bam_path, ped_path=ped_path)
         self.assertTrue(sample_object.has_read_group("NA12878"))
         self.assertEqual(sample_object.name, "HG002")
         self.assertAlmostEqual(sample_object.mean_coverage, 25.46, places=1)
+        self.assertEqual(sample_object.gender, 1)
 
         # Get generic library
         library_object = sample_object.get_library("HG002")
@@ -46,3 +48,9 @@ class SampleLoadTestSuite(unittest.TestCase):
 
         max_gc = sample_object.max_gc_normalized_coverage(limit=2.0)
         print(max_gc)
+
+    def test_handles_missing_gender(self):
+        json_path = os.path.join(FILE_DIR, "stats.json")
+        bam_path = os.path.join(FILE_DIR, "1_1598414_1598580_DEL.bam")
+        sample_object = Sample.from_npsv(json_path, bam_path=bam_path)
+        self.assertEqual(sample_object.gender, 0)

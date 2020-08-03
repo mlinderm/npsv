@@ -141,12 +141,13 @@ class NPSVStatsLibrary(HistogramLibrary):
 
 
 class Sample(object):
-    def __init__(self, name, libraries, rg_to_lib, generic_lib, mean_coverage=None):
+    def __init__(self, name, libraries, rg_to_lib, generic_lib, mean_coverage=None, gender: int=0):
         self.name = name
         self.libraries = libraries
         self.rg_to_lib = rg_to_lib
         self.generic_lib = generic_lib
         self.mean_coverage = mean_coverage
+        self.gender = gender  # Use PED encoding
 
     @classmethod
     def from_svtyper(cls, bam, json_path):
@@ -242,7 +243,7 @@ class Sample(object):
 
     @classmethod
     def from_npsv(
-        cls, json_path: str, bam_path: str = None, min_gc_bin=100, max_gc_error=0.01
+        cls, json_path: str, bam_path: str = None, ped_path: str = None, min_gc_bin=100, max_gc_error=0.01
     ) -> "Sample":
         """Create Sample object from NPSV BAM stats JSON file
         
@@ -254,6 +255,12 @@ class Sample(object):
         Returns:
             Sample: Sample object with library stats
         """
+        sample_genders = {}
+        if ped_path:
+            ped_table = pd.read_table(ped_path, header=None)
+            for sample in ped_table.itertuples():
+                sample_genders[sample[2]] = sample[5]
+
         with open(json_path, "r") as file:
             bam_info = json.load(file)
 
@@ -295,6 +302,7 @@ class Sample(object):
                 rg_to_lib,
                 library_object,
                 mean_coverage=bam_info["mean_coverage"],
+                gender = bam_info.get("gender", 0) or sample_genders.get(bam_info["sample"], 0),
             )
 
     def has_read_group(self, read_group):

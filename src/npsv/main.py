@@ -330,7 +330,7 @@ def main():
     # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
     if args.stats_path is not None:
         logging.info("Extracting BAM stats from NPSV stats file")
-        sample = Sample.from_npsv(args.stats_path, bam_path=args.bam)
+        sample = Sample.from_npsv(args.stats_path, bam_path=args.bam, ped_path=args.ped_path)
     elif None not in (
         args.fragment_mean,
         args.fragment_sd,
