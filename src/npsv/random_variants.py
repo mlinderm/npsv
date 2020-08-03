@@ -6,7 +6,7 @@ from operator import itemgetter
 
 CHROM_REGEX_AUTO = r"^(chr)?([1-9][0-9]?)$"
 CHROM_REGEX_AUTO_NOY = r"^(chr)?([1-9][0-9]?|[X])$"
-CHROM_REGEX_ONLY_SEX = r"^(chr)?[XY]"
+CHROM_REGEX_SEX = r"^(chr)?[XY]"
 
 
 def sample_starts(contigs, size, n):
@@ -63,7 +63,7 @@ def random_deletions(
     )
     filter_regex = CHROM_REGEX_AUTO
     if only_sex:
-        filter_regex = CHROM_REGEX_ONLY_SEX
+        filter_regex = CHROM_REGEX_SEX
     elif use_X:
         filter_regex = CHROM_REGEX_AUTO_NOY
     contigs = contigs[contigs.CHROM.str.match(filter_regex)]

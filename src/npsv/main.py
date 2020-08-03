@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, io, logging, os, subprocess, shutil, sys, tempfile
+import argparse, io, logging, os, re, subprocess, shutil, sys, tempfile
 from tqdm import tqdm
 from shlex import quote
 import pysam
@@ -11,7 +11,7 @@ from npsv.feature_extraction import (
     extract_variant_features,
     header,
 )
-from npsv.random_variants import random_deletions
+from npsv.random_variants import random_deletions, CHROM_REGEX_SEX
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
 import ray
@@ -178,6 +178,14 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     else:
         simulated_ACs = [1, 2]
 
+        use_X = only_sex = False
+        if sample.gender == 1 and re.match(CHROM_REGEX_SEX, variant.chrom):
+            # For 46XY we only want to sample from haploid sex chromosomes for X, Y variants
+            only_sex = True
+        elif sample.gender == 2:
+            # For 46XX we can include diploid X along with autosome
+            use_X = True
+
         # Generate random variants as the null model
         random_vcf_path = os.path.join(args.output, description + ".random.vcf")
         with open(random_vcf_path, "w") as random_vcf_file:
@@ -188,8 +196,8 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                 random_vcf_file,
                 size=variant.event_length,
                 n=replicates,
-                use_X=args.use_X,
-                only_sex=args.only_sex,
+                use_X=use_X,
+                only_sex=only_sex,
                 flank=args.flank,
             )
 
@@ -216,7 +224,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
         shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
 
     stats_file_arg = ""
-    hap_coverage = sample.mean_coverage / 2
+    hap_coverage = sample.chrom_mean_coverage(variant.chrom) / 2
     if args.covg_gc_bias and args.stats_path is not None:
         # Use the BAM stats to model GC bias in the simulation
         stats_file_arg = f"-j {quote(args.stats_path)}"
