@@ -413,7 +413,9 @@ def genotype_vcf(
     for record in tqdm(vcf_reader, desc="Genotyping variants"):
         variant = Variant.from_pyvcf(record)
         
-        # Write sites-only and FORMAT columns (overwriting any original values)
+        # Write sites-only and FORMAT columns (overwriting any original or potentially invalidated values)
+        record.INFO.pop("AC", None)
+        record.INFO.pop("AN", None)
         record.FORMAT = None
         record.samples = []
         vcf_writer.write_record(record)
