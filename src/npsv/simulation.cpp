@@ -94,9 +94,6 @@ void FilterReads(const std::string& fasta_path, const std::string& sam_path,
     int gc_fraction = std::lround(static_cast<float>(gc * 100) / length);
 
     // Downsample reads based on GC normalized coverage
-    if (gc_map.find(gc_fraction) == gc_map.end())
-      std::cerr << "GC fraction: " << gc_fraction << std::endl;
-    
     float gc_norm_covg = gc_map.at(gc_fraction);
     if (dist(engine) < gc_norm_covg)
       WriteFastQ(writer, read1.FirstFlag() ? read1 : read2,

@@ -28,9 +28,8 @@ def filter_reads(args, stats_path: str, fasta_path: str, in_sam: str, out_fastq:
     library = sample.get_library(None)
     
     gc_dict = {}
-    for gc in np.arange(0.0, 1.0, 0.01):
-        gc_dict[round(gc * 100)] = library.gc_normalized_coverage(gc)
-
+    for gc in np.linspace(0.0, 1.0, 101):
+        gc_dict[np.round(gc * 100).astype(int)] = library.gc_normalized_coverage(gc)
     max_normalized_gc = min(max(gc_dict.values()), args.max_gc_norm_covg)
     for gc, covg in gc_dict.items():
         gc_dict[gc] = covg / max_normalized_gc
