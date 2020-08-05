@@ -14,6 +14,7 @@ from npsv.feature_extraction import (
 from npsv.random_variants import random_deletions, CHROM_REGEX_SEX
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
+from npsv.simulation import GNOMAD_MULT_COVG
 import ray
 from retry import retry
 
@@ -223,9 +224,15 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     if check_if_bwa_index_loaded(args.reference):
         shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
 
-    stats_file_arg = ""
     hap_coverage = sample.chrom_mean_coverage(variant.chrom) / 2
-    if args.covg_gc_bias and args.stats_path is not None:
+    
+    stats_file_arg = ""
+    gnomad_covg_file_arg = ""
+    if args.gnomad_covg is not None:
+        # Use gnomAD coverage file to model coverage bias in the simulation
+        gnomad_covg_file_arg = f"-g {quote(args.gnomad_covg)}"
+        hap_coverage *= GNOMAD_MULT_COVG
+    elif args.covg_gc_bias and args.stats_path is not None:
         # Use the BAM stats to model GC bias in the simulation
         stats_file_arg = f"-j {quote(args.stats_path)}"
         hap_coverage *= sample.max_gc_normalized_coverage(limit=args.max_gc_norm_covg)
@@ -241,7 +248,6 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                     -t {quote(args.tempdir)} \
                     -R {quote(args.reference)} \
                     {shared_ref_arg} \
-                    -g {quote(args.genome)} \
                     -c {hap_coverage:0.1f} \
                     -m {sample.mean_insert_size} \
                     -s {sample.std_insert_size} \
@@ -252,7 +258,9 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                     -z {z} \
                     -n {sample.name} \
                     {stats_file_arg} \
-                    {variant_vcf_path} {synthetic_bam_path}"
+                    {gnomad_covg_file_arg} \
+                    {variant_vcf_path} \
+                    {synthetic_bam_path}"
                 synth_result = subprocess.run(
                     synth_commandline, shell=True, stderr=subprocess.PIPE,
                 )

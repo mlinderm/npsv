@@ -3,7 +3,6 @@ from backports.cached_property import cached_property
 import vcf
 import pysam
 
-
 def variant_descriptor(record: vcf.model._Record):
     return "{}_{}_{}_{}".format(
         record.CHROM, record.POS, record.sv_end, record.var_subtype
@@ -260,6 +259,42 @@ class DeletionVariant(Variant):
 
         return allele_fasta.name, ref_contig, alt_contig
 
+    def gnomad_coverage_profile(self, args, gnomad_coverage: str, covg_file=None, ref_contig=None, alt_contig=None, line_width=60):
+        region = self.region_string(args.flank)
+        gnomad_coverage_tabix = pysam.TabixFile(gnomad_coverage)
+
+        # Use a FASTQ-like +33 scheme for encoding depth
+        ref_covg = "".join(map(
+            lambda x: chr(min(round(float(x[2]))+33, 126)), 
+            gnomad_coverage_tabix.fetch(region=region, parser=pysam.asTuple())
+        ))
+        gnomad_coverage_tabix.close()
+  
+        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
+        allele = self.record.ALT[0]
+        if isinstance(allele, vcf.model._SV):
+            alt_covg = ref_covg[: args.flank] + ref_covg[-args.flank :]
+        elif isinstance(allele, vcf.model._Substitution):
+            alt_covg = ref_covg[: args.flank - 1] + ref_covg[args.flank-1]*len(allele) + ref_covg[-args.flank :]
+        else:
+            raise ValueError("Unsupported allele type")
+
+        # Write out 
+        if ref_contig is None:
+            ref_contig = region.replace(":", "_").replace("-", "_")
+        if alt_contig is None:
+            alt_contig = ref_contig + "_alt"
+        if covg_file is None:
+            covg_file = tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".fasta", dir=args.tempdir
+            )
+
+        print(ref_contig, ref_covg, sep="\t", file=covg_file)
+        print(alt_contig, alt_covg, sep="\t", file=covg_file)
+
+        return covg_file.name, ref_contig, alt_contig
+
+       
 
 def consensus_fasta(args, input_vcf: str, output_file):
     record = next(vcf.Reader(filename=input_vcf))

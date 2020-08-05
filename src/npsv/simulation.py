@@ -1,7 +1,9 @@
 import random, sys
 import numpy as np
 import pysam
+import vcf
 from npsv.sample import Sample
+from npsv.variant import Variant
 from npsv import npsva
 
 def reverse_complement(sequence):
@@ -21,7 +23,7 @@ def reverse(sequence, should_reverse):
     return sequence[::-1] if should_reverse else sequence
 
 
-def filter_reads(args, stats_path: str, fasta_path: str, in_sam: str, out_fastq: str):
+def filter_reads_gc(args, stats_path: str, fasta_path: str, in_sam: str, out_fastq: str):
     sample = Sample.from_npsv(stats_path)
     
     # Construct dictionary of GC normalized coverage
@@ -34,6 +36,25 @@ def filter_reads(args, stats_path: str, fasta_path: str, in_sam: str, out_fastq:
     for gc, covg in gc_dict.items():
         gc_dict[gc] = covg / max_normalized_gc
 
-    npsva.filter_reads(fasta_path, in_sam, out_fastq, gc_dict)
+    npsva.filter_reads_gc(fasta_path, in_sam, out_fastq, gc_dict)
 
+
+def gnomad_coverage_profile(args, gnomad_coverage:str, input_vcf: str, output_file):
+    record = next(vcf.Reader(filename=input_vcf))
+    variant = Variant.from_pyvcf(record)
+    variant.gnomad_coverage_profile(
+        args,
+        gnomad_coverage,
+        output_file,
+        ref_contig=args.ref_contig,
+        alt_contig=args.alt_contig,
+    )
+
+# Actual max is 100, but for performance reasons we oversimulate a lower fraction
+GNOMAD_MAX_COVG = 40. 
+GNOMAD_MEAN_COVG = 30.6
+GNOMAD_MULT_COVG = GNOMAD_MAX_COVG / GNOMAD_MEAN_COVG
+
+def filter_reads_gnomad(args, covg_path: str, in_sam: str, out_fastq: str):
+    npsva.filter_reads_gnomad(covg_path, in_sam, out_fastq, GNOMAD_MAX_COVG)
         

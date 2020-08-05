@@ -10,7 +10,9 @@ namespace npsv {
 
 typedef std::map<int, float> GCNormalizedCoverage;
 
-void FilterReads(const std::string& fasta_path, const std::string& sam_path, const std::string& fastq_path, const GCNormalizedCoverage& gc_map);
+void FilterReadsGC(const std::string& fasta_path, const std::string& sam_path, const std::string& fastq_path, const GCNormalizedCoverage& gc_map);
+
+void FilterReadsGnomAD(const std::string& covg_path, const std::string& sam_path, const std::string& fastq_path, float max_covg);
 
 
 }

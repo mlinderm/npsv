@@ -126,6 +126,12 @@ def add_data_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         type=str,
         help="Path to PED file with sample being genotyped",
     )
+    parser.add_argument(
+        "--gnomad-covg",
+        help="Tabix-indexed gnomAD coverage TSV file",
+        type=str,
+        dest="gnomad_covg",
+    )
     return parser
 
 

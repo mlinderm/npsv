@@ -3,10 +3,10 @@ set -e -o pipefail
 
 TMPDIR_ROOT=$TMPDIR
 REFERENCE=human_g1k_v37.fasta
-GENOME="${REFERENCE/%fasta/genome}"
 SHAREDREF=
 SAMPLE=
 STATSFILE=
+GNOMADCOVGFILE=
 
 FLANK=1000
 COVERAGE=20
@@ -27,7 +27,6 @@ Generate synthetic BAMs for single variant and specified zygosity
 Options:
   -h            Print this message
   -R FASTA      Path to reference file, default: $REFERENCE
-  -g FILE       Path to BEDTools genome file, default: $GENOME
   -S FASTA      Reference file already in shared memory, default: undefined
   -c integer    Haploid coverage, default: $COVERAGE
   -m float      Mean fragment size, default: $FRAGMEAN
@@ -39,7 +38,8 @@ Options:
   -f integer    Flank size, default: $FLANK
   -i integer    Number of samples in output SAM/BAM, default: $SAMPLES
   -n string     Sample name, default: undefined
-  -j FILE       NPSV stats file for GC normalized coverage, default: undefined       
+  -j FILE       NPSV stats file for GC normalized coverage, default: undefined
+  -g FILE       Path to gnomAD coverage file, default: undefined
 EOF
 }
 
@@ -83,7 +83,7 @@ do
             SAMPLE=$OPTARG
             ;;
         g)
-            GENOME=$OPTARG
+            GNOMADCOVGFILE=$OPTARG
             ;;
         j)
             STATSFILE=$OPTARG
@@ -120,7 +120,6 @@ trap "rm -rf $TMPDIR" 0
 
 # Generate diploid FASTAs for input to synthetic read generator
 
-# TODO: Make reference and alternate contigs have the same length (going into ART)
 FASTA=$TMPDIR/diploid.fasta
 if [[ $ZYGOSITY -eq 0 ]]; then
     npsvg consensus -r "$REFERENCE" --flank "$FLANK" --ac 0 -i "$INVCF" -o "$FASTA"
@@ -135,6 +134,12 @@ else
     exit 1
 fi
 cp "$FASTA" "${OUTBAM/%bam/synth.fasta}"
+
+# If gnomAD coverage file is provided, generate coverage profile
+COVGPROFILE="${OUTBAM/%bam/coverage.fasta}"
+if [[ -n $GNOMADCOVGFILE ]]; then
+    npsvg covgprofile --flank "$FLANK" --gnomad-covg "$GNOMADCOVGFILE" -i "$INVCF" -o "$COVGPROFILE"
+fi
 
 # If shared memory reference is not defined, use reference files
 if [[ -z $SHAREDREF ]]; then
@@ -157,7 +162,8 @@ do
     # This pipeline should be modified to make the simulated pipeline similar to the
     # the pipeline used with the actual data
     ALIGNEDBAM=$TMPDIR/aligned${s}.bam
-    if [[ -z $STATSFILE ]]; then
+    #if [[ -z $STATSFILE ]]; then
+    if [[ -z $GNOMADCOVGFILE ]]; then
         bwa mem -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
             -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
             "$SHAREDREF" \
@@ -167,7 +173,8 @@ do
         sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
     else
         # Downsample reads based on GC fraction
-        npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam"  | \
+        #npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam"  | \
+        npsvg gnomadcovg --covg-path "$COVGPROFILE" -i "${READS_PREFIX}.sam"  | \
         bwa mem -p -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
             -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
             "$SHAREDREF" \
