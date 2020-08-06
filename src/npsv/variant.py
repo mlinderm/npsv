@@ -3,6 +3,7 @@ from backports.cached_property import cached_property
 import vcf
 import pysam
 
+
 def variant_descriptor(record: vcf.model._Record):
     return "{}_{}_{}_{}".format(
         record.CHROM, record.POS, record.sv_end, record.var_subtype
@@ -48,8 +49,23 @@ class Variant(object):
         return int(self.record.sv_end)
 
     @property
-    def subtype(self):
+    def event_length(self):
+        """Length difference between reference and alternate alleles, i.e. absolute value of SVLEN field"""
+        return abs(self.INFO["SVLEN"])
+
+    @property
+    def ref_length(self):
+        """Length of reference allele including any padding bases"""
         raise NotImplementedError()
+
+    @property
+    def alt_length(self):
+        """Length of alternate allele including any padding bases"""
+        raise NotImplementedError()
+
+    @property
+    def subtype(self):
+        return self.record.var_subtype
 
     @property
     def is_precise(self):
@@ -64,6 +80,10 @@ class Variant(object):
 
     @property
     def is_deletion(self):
+        return False
+
+    @property
+    def is_insertion(self):
         return False
 
     @property
@@ -112,7 +132,7 @@ class Variant(object):
             raise err
 
     @cached_property
-    def alt_gc_fraction(self):        
+    def alt_gc_fraction(self):
         gc = 0
         alignable_bases = 0
         for base in self.reference_sequence(flank=0):
@@ -124,7 +144,7 @@ class Variant(object):
         if alignable_bases > 0:
             return float(gc) / alignable_bases, alignable_bases
         else:
-            return 0., 0
+            return 0.0, 0
 
     def to_minimal_vcf(self, args):
         raise NotImplementedError()
@@ -137,6 +157,8 @@ class Variant(object):
         kind = record.var_subtype
         if kind.startswith("DEL"):
             return DeletionVariant(record, reference)
+        elif kind.startswith("INS"):
+            return InsertionVariant(record, reference)
 
 
 class DeletionVariant(Variant):
@@ -152,10 +174,8 @@ class DeletionVariant(Variant):
         return True
 
     @property
-    def event_length(self):
-        # In correctly formatted VCF, POS is first base of event when zero-indexed, while
-        # END is 1-indexed closed end or 0-indexed half-open end
-        return int(self.record.sv_end) - self.record.POS
+    def ref_length(self):
+        return self.end - self.pos + 1
 
     @property
     def alt_length(self):
@@ -223,7 +243,13 @@ class DeletionVariant(Variant):
         return vcf_file.name + ".gz"
 
     def synth_fasta(
-        self, args, allele_fasta=None, ac=1, ref_contig=None, alt_contig=None, line_width=60
+        self,
+        args,
+        allele_fasta=None,
+        ac=1,
+        ref_contig=None,
+        alt_contig=None,
+        line_width=60,
     ):
         # TODO: Normalize ref and alt contig lengths
         region = self.region_string(args.flank)
@@ -259,27 +285,41 @@ class DeletionVariant(Variant):
 
         return allele_fasta.name, ref_contig, alt_contig
 
-    def gnomad_coverage_profile(self, args, gnomad_coverage: str, covg_file=None, ref_contig=None, alt_contig=None, line_width=60):
+    def gnomad_coverage_profile(
+        self,
+        args,
+        gnomad_coverage: str,
+        covg_file=None,
+        ref_contig=None,
+        alt_contig=None,
+        line_width=60,
+    ):
         region = self.region_string(args.flank)
         gnomad_coverage_tabix = pysam.TabixFile(gnomad_coverage)
 
         # Use a FASTQ-like +33 scheme for encoding depth
-        ref_covg = "".join(map(
-            lambda x: chr(min(round(float(x[2]))+33, 126)), 
-            gnomad_coverage_tabix.fetch(region=region, parser=pysam.asTuple())
-        ))
+        ref_covg = "".join(
+            map(
+                lambda x: chr(min(round(float(x[2])) + 33, 126)),
+                gnomad_coverage_tabix.fetch(region=region, parser=pysam.asTuple()),
+            )
+        )
         gnomad_coverage_tabix.close()
-  
+
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
             alt_covg = ref_covg[: args.flank] + ref_covg[-args.flank :]
         elif isinstance(allele, vcf.model._Substitution):
-            alt_covg = ref_covg[: args.flank - 1] + ref_covg[args.flank-1]*len(allele) + ref_covg[-args.flank :]
+            alt_covg = (
+                ref_covg[: args.flank - 1]
+                + ref_covg[args.flank - 1] * len(allele)
+                + ref_covg[-args.flank :]
+            )
         else:
             raise ValueError("Unsupported allele type")
 
-        # Write out 
+        # Write out
         if ref_contig is None:
             ref_contig = region.replace(":", "_").replace("-", "_")
         if alt_contig is None:
@@ -294,7 +334,71 @@ class DeletionVariant(Variant):
 
         return covg_file.name, ref_contig, alt_contig
 
-       
+
+class InsertionVariant(Variant):
+    def __init__(self, record, reference):
+        Variant.__init__(self, record, reference)
+
+    @property
+    def is_insertion(self):
+        return True
+
+    @property
+    def ref_length(self):
+        return 1
+
+    @property
+    def alt_length(self):
+        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
+        allele = self.record.ALT[0]
+        if isinstance(allele, vcf.model._SV):
+            # Symbolic allele
+            return int(self.record.INFO["SVLEN"])
+        else:
+            return len(allele)
+
+    def synth_fasta(
+        self,
+        args,
+        allele_fasta=None,
+        ac=1,
+        ref_contig=None,
+        alt_contig=None,
+        line_width=60,
+    ):
+        region = self.region_string(args.flank)
+        ref_seq = self.reference_sequence(region=region)
+
+        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
+        allele = self.record.ALT[0]
+        if isinstance(allele, vcf.model._SV):
+            assert False, "Symbolic insertions are not yet supported"
+        elif isinstance(allele, vcf.model._Substitution):
+            alt_seq = ref_seq[: args.flank - 1] + str(allele) + ref_seq[-args.flank :]
+        else:
+            raise ValueError("Unsupported allele type")
+
+        if ref_contig is None:
+            ref_contig = region.replace(":", "_").replace("-", "_")
+        if alt_contig is None:
+            alt_contig = ref_contig + "_alt"
+        if allele_fasta is None:
+            allele_fasta = tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".fasta", dir=args.tempdir
+            )
+
+        # Write out FASTA
+        print(">", ref_contig, sep="", file=allele_fasta)
+        if ac == 0 or ac == 1:
+            for line in textwrap.wrap(ref_seq, width=line_width):
+                print(line, file=allele_fasta)
+        print(">", alt_contig, sep="", file=allele_fasta)
+        if ac == 1 or ac == 2:
+            for line in textwrap.wrap(alt_seq, width=line_width):
+                print(line, file=allele_fasta)
+
+        return allele_fasta.name, ref_contig, alt_contig
+
 
 def consensus_fasta(args, input_vcf: str, output_file):
     record = next(vcf.Reader(filename=input_vcf))

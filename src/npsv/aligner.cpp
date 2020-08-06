@@ -296,9 +296,12 @@ Overlap::Overlap(const Fragment& fragment, const sl::GenomicRegion& breakpoint,
     return;
   }
 
-  // TODO: Add minimum overlap?
-  auto first_region = best_pair.first_->AsGenomicRegion();
-  auto second_region = best_pair.second_->AsGenomicRegion();
+  // The read region is 0-indexed with a non-inclusive end coordinate, but SeqLib's operations on GenomicRegions
+  // assume 1-indexed regions with inclusive start and end coordinates. So we convert those coordinates here.
+  auto & first_read = best_pair.first_;
+  sl::GenomicRegion first_region(first_read->ChrID(), first_read->Position() + 1, first_read->PositionEnd());
+  auto & second_read = best_pair.second_;
+  sl::GenomicRegion second_region(second_read->ChrID(), second_read->Position() + 1, second_read->PositionEnd());
   if (first_region.GetOverlap(*breakpoint_) ==
           GenomicRegionOverlap::ContainsArg ||
       second_region.GetOverlap(*breakpoint_) ==
@@ -594,9 +597,43 @@ std::vector<AlleleAlignments::score_type> TestScoreAlignment(
         read.Sequence(), read.Qualities(0), ref_sequence, read);
     scores.push_back(log_prob);
   }
-
+  
+  reader.Close();
   return scores;
 }
+
+bool TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle) {
+  sl::BamReader reader;
+  reader.Open(sam_path);
+
+  sl::BamRecord read1, read2;
+  pyassert(reader.GetNextRecord(read1), "Missing first read");
+  pyassert(reader.GetNextRecord(read2), "Missing second read");
+  reader.Close();
+
+  Fragment test_fragment(read1);
+  test_fragment.SetRead(read2);
+  pyassert(test_fragment.IsPaired(), "Test data has paired reads");
+
+  test_fragment.first_alignments_.push_back(test_fragment.first_);
+  AddDoubleTag(test_fragment.first_alignments_.back(), "as", -10.);
+  test_fragment.second_alignments_.push_back(test_fragment.second_);
+  AddDoubleTag(test_fragment.second_alignments_.back(), "as", -10.);
+
+  InsertSizeDistribution insert_dist(570., 163., InsertSizeDistribution::density_type());
+  test_fragment.SetBestPair(insert_dist);
+
+  // SeqLib reverses samtools 1-indexing to 0-indexing conversion so the GenomicRegion constructed
+  // this way matches the region string exactly and assumes inclusive start and exclusive end. But
+  // the AsGenomicRegion method uses the BAM specification of a 0-indexed inclusive start and exclusive end.
+  // The GenomicRegion overlap computation assumes 1-indexed inclusive start and end coordinates.
+
+  sl::GenomicRegion breakpoint_region(breakpoint, reader.Header());
+  Overlap overlap(test_fragment, breakpoint_region, Overlap::OverlapAllele::RefLeft, -10., count_straddle);
+
+  return overlap.HasOverlap();
+}
+
 
 }  // namespace test
 

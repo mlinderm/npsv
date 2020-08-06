@@ -80,3 +80,17 @@ npsvg \
     -i tests/results/1_1598414_1598580_DEL.propose.npsv.vcf \
     -o tests/results/1_1598414_1598580_DEL.propose.refined.vcf
 ```
+
+
+```
+npsv \
+    -r /data/human_g1k_v37.fasta \
+    --genome etc/human_g1k_v37.genome \
+    --gaps etc/human_g1k_v37.gaps.bed.gz \
+    -i tests/data/1_931634_931634_INS.vcf.gz \
+    -b tests/data/1_1598414_1598580_DEL.bam \
+    --stats-path tests/data/stats.json \
+    -o tests/results \
+    --prefix 1_931634_931634_INS.result \
+    --n 5 --reuse --sim-ref --local -c rf
+```

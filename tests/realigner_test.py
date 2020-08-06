@@ -1,4 +1,5 @@
 import argparse, io, os, tempfile, unittest
+from unittest.mock import patch
 import vcf
 import pysam
 from npsv.variant import Variant
@@ -7,6 +8,208 @@ from npsv.sample import Sample
 from npsv import npsva
 
 FILE_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+class DELAlleleCountingTest(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name)
+        self.input_bam = "dummy.bam"
+        self.sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), self.input_bam)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_resolved_breakpoint_arguments(self):
+        vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+##contig=<ID=1,length=249250621>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+1	100	.	ACGT	A	.	PASS	SVTYPE=DEL;END=103;SVLEN=-3
+"""
+        )
+
+        for record in vcf.Reader(vcf_file):
+            variant = Variant.from_pyvcf(record, None)
+            self.assertIsNotNone(variant)
+
+        read_counts = { "rl_reads": 0, "rr_reads": 0, "al_reads": 0, "ar_reads": 0 } 
+
+        with patch.object(Variant,"reference_sequence",return_value="AT"), patch.object(npsva.Realigner, "count_alignments", return_value=(read_counts, [])) as mock_count:
+            count_alleles_with_npsva(
+                self.args,
+                variant,
+                self.input_bam,
+                self.sample,
+            )
+            mock_count.assert_called_once_with(
+                self.input_bam,
+                "1_100_104:1-2",
+                "1_100_104_alt:1-2",
+                count_straddle=True, 
+                region="1:100-104",
+                rr_region="1_100_104:4-5",
+            )
+
+    def test_symbolic_breakpoint_arguments(self):
+        vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+##contig=<ID=1,length=249250621>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+1	100	.	A	<DEL>	.	PASS	SVTYPE=DEL;END=105;SVLEN=-5
+"""
+        )
+
+        for record in vcf.Reader(vcf_file):
+            variant = Variant.from_pyvcf(record, None)
+            self.assertIsNotNone(variant)
+
+        read_counts = { "rl_reads": 0, "rr_reads": 0, "al_reads": 0, "ar_reads": 0 } 
+
+        with patch.object(Variant,"reference_sequence",return_value="AT"), patch.object(npsva.Realigner, "count_alignments", return_value=(read_counts, [])) as mock_count:
+            count_alleles_with_npsva(
+                self.args,
+                variant,
+                self.input_bam,
+                self.sample,
+            )
+            mock_count.assert_called_once_with(
+                self.input_bam,
+                "1_100_106:1-2",
+                "1_100_106_alt:1-2",
+                count_straddle=True, 
+                region="1:100-106",
+                rr_region="1_100_106:6-7",
+            )
+
+    def test_complex_breakpoint_arguments(self):
+        vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+##contig=<ID=1,length=249250621>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+1	100	.	ACCGGTT	ACGT	.	PASS	SVTYPE=DEL;END=106;SVLEN=-3
+"""
+        )
+
+        for record in vcf.Reader(vcf_file):
+            variant = Variant.from_pyvcf(record, None)
+            self.assertIsNotNone(variant)
+
+        read_counts = { "rl_reads": 0, "rr_reads": 0, "al_reads": 0, "ar_reads": 0 } 
+
+        with patch.object(Variant,"reference_sequence",return_value="AT"), patch.object(npsva.Realigner, "count_alignments", return_value=(read_counts, [])) as mock_count:
+            count_alleles_with_npsva(
+                self.args,
+                variant,
+                self.input_bam,
+                self.sample,
+            )
+            mock_count.assert_called_once_with(
+                self.input_bam,
+                "1_100_107:1-2",
+                "1_100_107_alt:1-2",
+                ar_region="1_100_107_alt:4-5",
+                count_straddle=True, 
+                region="1:100-107",
+                rr_region="1_100_107:7-8",
+            )
+
+class INSAlleleCountingTest(unittest.TestCase):
+    def setUp(self):
+        self.vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+##ALT=<ID=INS,Description="Insertion">
+##contig=<ID=1,length=249250621>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+1	100	.	A	ACGT	.	PASS	SVTYPE=INS;END=100;SVLEN=3
+"""
+        )
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name)
+        self.input_bam = "dummy.bam"
+        self.sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), self.input_bam)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_breakpoint_arguments(self):
+        for record in vcf.Reader(self.vcf_file):
+            variant = Variant.from_pyvcf(record, None)
+            self.assertIsNotNone(variant)
+
+        read_counts = { "rl_reads": 0, "rr_reads": 0, "al_reads": 0, "ar_reads": 0 } 
+
+        with patch.object(Variant,"reference_sequence",return_value="AT"), patch.object(npsva.Realigner, "count_alignments", return_value=(read_counts, [])) as mock_count:
+            count_alleles_with_npsva(
+                self.args,
+                variant,
+                self.input_bam,
+                self.sample,
+            )
+            mock_count.assert_called_once_with(
+                self.input_bam,
+                "1_100_101:1-2",
+                "1_100_101_alt:1-2",
+                ar_region="1_100_101_alt:4-5", 
+                count_straddle=True, 
+                region="1:100-101"
+            )
+
+
+class OverlapCoordinateTest(unittest.TestCase):
+    def test_breakpoint_overlap(self):
+        try:
+            # Create SAM file with a single read
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".sam"
+            ) as sam_file:
+                # fmt: off
+                print("@HD", "VN:1.3", "SO:coordinate", sep="\t", file=sam_file)
+                print("@SQ", "SN:ref", "LN:6070", sep="\t", file=sam_file)
+                print("@RG", "ID:synth1", "LB:synth1", "PL:illumina", "PU:ART", "SM:HG002", sep="\t", file=sam_file)
+                print(
+                    "ref-82", "99", "ref", "91", "99", "148=", "=", "679", "736",
+                    "GATGAGCGAGAGCCGCCAGACCCACGTGACGCTGCACGACATCGACCCTCAGGCCTTGGACCAGCTGGTGCAGTTTGCCTACACGGCTGAGATTGTGGTGGGCGAGGGCAATGTGCAGGTGAGGGCTCCCTCACCCGGATCCCGGTGT",
+                    "CCCGGGGGGGGGG=CGJJGCJJJJJJJJJGJJJGCGGJJJJJJGJJGJCG8GGJGJJJGGCGCJGCCJCCGGG81GGCGGGGCCCGGCGGGGGGGC=GCCGGCGGCCGGGCCGGGC8CGGGCCC=GGCGGGGGGGGGGGCGGGGGGCG",
+                    sep="\t", file=sam_file,
+                )
+                print(
+                    "ref-82", "147", "ref", "679", "99", "148=", "=", "91", "-736",
+                    "CCTGACTCTGCTCGGCCCCTCCCAGTATGAACACTCAGCCCCCACCTGCTAACCCTCCCTCCTAGGCATCTTCAGGGCTCCCTGGGTCCACAGGACCCTCCCCAGATCTCAGGTCTGAGGACCCCCACTCCCAGGTTCTGGAACTGGT",
+                    "CCGGCGGGGCCCGCC=GGGG8CG8GGGC8CCGGGGGGGGGGGGGCCC(JGG1CGGGGCGGCCGC8GGGCGGGGGCCGGGJCGGG(CJ=JGJJGJJGGJJGGJJGGGJGJJGJJGJJGJGCCCGJGJJGJJJJJGJGGCG1GGGGGCCC",
+                    sep="\t", file=sam_file,
+                )
+                # fmt: on
+            
+            # Doesn't overlap both bases, i.e. doesn't span breakpoint
+            self.assertFalse(npsva.test_alignment_overlap(sam_file.name, "ref:90-91", False))
+            self.assertFalse(npsva.test_alignment_overlap(sam_file.name, "ref:826-827", False))
+
+            # Does overlap both bases, i.e. does span breakpoint
+            self.assertTrue(npsva.test_alignment_overlap(sam_file.name, "ref:91-92", False))
+            self.assertTrue(npsva.test_alignment_overlap(sam_file.name, "ref:825-826", False))
+            
+            # Positions in the insert between reads (with and without counting straddlers)
+            self.assertTrue(npsva.test_alignment_overlap(sam_file.name, "ref:247-248", True))
+            self.assertFalse(npsva.test_alignment_overlap(sam_file.name, "ref:247-248", False))
+
+        finally:
+            os.remove(sam_file.name)
 
 
 class NPSVAAlleleCountingTest(unittest.TestCase):

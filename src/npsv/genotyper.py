@@ -275,7 +275,7 @@ def genotype_vcf(
 
     else:
         sim_data = pd.read_table(
-            input_sim, dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
+            input_sim, na_values=".", dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
         )
 
     if sim_data.shape[0] == 0:
@@ -290,8 +290,12 @@ def genotype_vcf(
 
     add_derived_features(sim_data)
 
-    real_data = pd.read_table(input_real, dtype={"#CHROM": str, "SAMPLE": str})
+    real_data = pd.read_table(input_real, na_values=".", dtype={"#CHROM": str, "SAMPLE": str})
     add_derived_features(real_data)
+
+    # Drop any columns that are entirely NA
+    sim_data = sim_data.dropna(axis=1, how="all")
+    real_data = real_data.dropna(axis=1, how="all")
 
     if not args.local:
         gt_mode = "single"

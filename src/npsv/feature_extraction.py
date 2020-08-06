@@ -35,27 +35,32 @@ def count_alleles_with_npsva(
             fasta_path = input_fasta
 
         # Reference and alternate breakpoint spans in synthetic fasta (1-indexed)
-        length = variant.event_length
+        ref_length = variant.ref_length
         alt_length = variant.alt_length
 
+        # 1-indexed coordinates
         rl_breakpoint = f"{ref_contig}:{args.flank}-{args.flank+1}"
         al_breakpoint = f"{alt_contig}:{args.flank}-{args.flank+1}"
 
         region = "{}:{}-{}".format(
             variant.record.CHROM,
             variant.record.POS - args.flank + 1,
-            int(variant.record.sv_end) + args.flank,
+            variant.end + args.flank,
         )
 
         count_alignment_args = {
-            "rr_region": f"{ref_contig}:{args.flank + length}-{args.flank + length + 1}",
             "region": region,
         }
+
+        if ref_length > 1:
+            count_alignment_args[
+                "rr_region"
+            ] = f"{ref_contig}:{args.flank + ref_length - 1}-{args.flank + ref_length}"
 
         if alt_length > 1:
             count_alignment_args[
                 "ar_region"
-            ] = f"{alt_contig}:{args.flank+alt_length}-{args.flank+alt_length+1}"
+            ] = f"{alt_contig}:{args.flank + alt_length - 1}-{args.flank + alt_length}"
 
         # Use or ignore actual density data (e.g. if simulated data)
         insert_size_density_dict = (
@@ -78,14 +83,16 @@ def count_alleles_with_npsva(
         )
 
         # If multiple alt breakpoints, average counts
-        r_reads = (counts["rl_reads"] + counts["rr_reads"]) / 2
+        r_reads = (counts["rl_reads"] + counts["rr_reads"]) / (
+            1 if ref_length == 1 else 2
+        )
         a_reads = (counts["al_reads"] + counts["ar_reads"]) / (
             1 if alt_length == 1 else 2
         )
 
         return r_reads, a_reads, read_names
     finally:
-        # Clean up the file we created
+        # Clean up the FASTA file if we created one
         if fasta_path != input_fasta:
             os.remove(fasta_path)
 
@@ -157,9 +164,7 @@ class Features(object):
     def read_counts(self, value):
         (self.ref_reads, self.alt_reads) = value
 
-    def print_features(
-        self, file, force_variant=None, ac=None
-    ):
+    def print_features(self, file, force_variant=None, ac=None):
         # TODO: Rationalize the column and attribute names
         print_variant = self.variant if force_variant is None else force_variant
         print(
@@ -272,12 +277,14 @@ def extract_variant_features(
         # Paired-end evidence
         # -------------------------------------
 
+        # TODO: Support insertions
+
         # Determine coordinates as 0-indexed [pos, end)
         # In correctly formatted VCF, POS is first base of event when zero-indexed, while
         # END is 1-indexed closed end or 0-indexed half-open end
         pos = variant.pos
         end = variant.end
-        event_length = variant.event_length
+        event_length = variant.ref_length
 
         ci_pos = variant.get_ci("CIPOS", default_ci=args.default_ci)
         ci_end = variant.get_ci("CIEND", default_ci=args.default_ci)
@@ -387,6 +394,11 @@ def extract_variant_features(
         features.alt_span = alt_paired
         features.insert_lower = insert_lower / insert_total if insert_total != 0 else 0
         features.insert_upper = insert_upper / insert_total if insert_total != 0 else 0
+
+    
+        # The following features are only relevant to deletions and duplications
+        if not variant.is_deletion:
+            return features
 
         # -------------------------------------
         # Coverage evidence

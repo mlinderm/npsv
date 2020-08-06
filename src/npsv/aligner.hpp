@@ -12,6 +12,10 @@ namespace sl = SeqLib;
 
 namespace npsv {
 
+namespace test {
+  bool TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle);
+}
+
 enum GenomicRegionOverlap {
   NoOverlap = 0,
   PartialOverlap = 1,
@@ -101,6 +105,7 @@ class Fragment {
   friend class AlleleAlignments;
   friend class Overlap;
   friend class Realigner;
+  friend bool test::TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle);
 };
 
 class AlleleAlignments {
