@@ -1,4 +1,4 @@
-import argparse, json, logging, os, re, subprocess, sys, tempfile
+import argparse, io, json, logging, os, re, subprocess, sys, tempfile
 import vcf
 import pysam
 import pysam.bcftools as bcftools
@@ -445,7 +445,7 @@ def extract_variant_features(
         features.dhfc = coverage / sample.chrom_mean_coverage(variant.chrom)
 
         # GC normalized coverage
-        gc_fraction, alignable_bases = variant.alt_gc_fraction
+        gc_fraction, alignable_bases = variant.ref_gc_fraction
         if alignable_bases > 0:
             features.dhbfc = coverage / sample.gc_mean_coverage(gc_fraction)
         else:
@@ -461,6 +461,104 @@ def extract_variant_features(
             features.dhffc = 1.0
 
         return features
+
+
+def extract_deletion_features(
+    args: argparse.Namespace,
+    variant: Variant,
+    input_bam: str,
+    sample: Sample,
+    max_reads: int = None,
+    input_fasta: str = None,
+    ref_contig: str = "ref",
+    alt_contig: str = "alt",
+    insert_hist: bool = True,
+):
+    features = Features(variant, sample)
+
+    fragments = npsva.RealignedFragments(
+        sample.mean_insert_size,
+        sample.std_insert_size,
+        sample.insert_size_density().as_dict(),
+        input_bam,
+    )
+
+    # Gather reads from the BAM file
+
+    pair_flank = 1000 #min(args.flank, sample.search_distance)
+    ci_pos = variant.get_ci("CIPOS", default_ci=args.default_ci)
+    ci_end = variant.get_ci("CIEND", default_ci=args.default_ci)
+    
+    if variant.ref_length > 2 * pair_flank + ci_pos[1] + abs(ci_end[0]):
+        # When event is large, gather reads only near the breakpoints
+        fragments.gather_reads(variant.left_flank_region_string(left_flank=abs(ci_pos[0]) + pair_flank, right_flank=ci_pos[1] + pair_flank))       
+        fragments.gather_reads(variant.right_flank_region_string(left_flank=abs(ci_end[0]) + pair_flank, right_flank=ci_end[1] + pair_flank))       
+    else:
+        # When event is small gather reads across the entire event
+        fragments.gather_reads(variant.region_string(flank=pair_flank))        
+
+
+
+    # Read Pair Evidence
+        
+    pair_results = fragments.count_baseline_straddlers(
+        variant.region_string(), pair_flank, -variant.event_length, 1.5, args.min_anchor,
+    )
+
+    # TODO: Incorporate 'concordance' count features
+    features.ref_span = pair_results["ref_weighted_count"]
+    features.alt_span = pair_results["alt_weighted_count"]
+    if pair_results["insert_count"] > 0:
+        features.insert_lower = pair_results["insert_lower"] / pair_results["insert_count"]
+        features.insert_upper = pair_results["insert_upper"] / pair_results["insert_count"]
+
+    # Coverage Evidence
+
+    def bases_in_region(region, region_length):
+        """Compute coverage over 1-indexed, closed region"""
+        depth_result = pysam.depth(  # pylint: disable=no-member
+            "-Q", str(args.min_mapq),
+            "-q", str(args.min_baseq),
+            "-l", str(args.min_anchor),
+            "-r", region,
+            input_bam,
+        )
+        depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
+        if len(depths) > 0:
+            _, start, end = pysam.libcutils.parse_region(region=region)
+            mean_coverage = np.sum(depths) / (end - start)
+            return mean_coverage
+        else:
+            return 0.
+
+    coverage = bases_in_region(variant.region_string(), variant.ref_length)
+    left_flank_coverage = bases_in_region(
+        variant.left_flank_region_string(args.rel_coverage_flank),
+        args.rel_coverage_flank,
+    )
+    right_flank_coverage = bases_in_region(
+        variant.right_flank_region_string(args.rel_coverage_flank),
+        args.rel_coverage_flank,
+    )
+
+    # Normalized coverage features adapted from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6479422/
+
+    # Chromosomal normalized coverage
+    features.coverage = coverage
+    features.dhfc = coverage / sample.chrom_mean_coverage(variant.chrom)
+
+    # GC normalized coverage
+    gc_fraction, alignable_bases = variant.ref_gc_fraction
+    if alignable_bases > 0:
+        features.dhbfc = coverage / sample.gc_mean_coverage(gc_fraction)
+
+    # Flank normalized coverage
+    mean_flank_coverage = (left_flank_coverage + right_flank_coverage) / 2
+    if mean_flank_coverage > 0:
+        features.dhffc = coverage / mean_flank_coverage
+
+    return features
+
 
 
 def extract(

@@ -37,6 +37,8 @@ class InsertSizeDistribution {
 
   double operator()(int insert_size) const;
 
+  double ZScore(int insert_size) const { return (insert_size - mean_) / std_; }
+
  private:
   double mean_, std_;
   density_type density_;

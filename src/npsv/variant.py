@@ -51,7 +51,7 @@ class Variant(object):
     @property
     def event_length(self):
         """Length difference between reference and alternate alleles, i.e. absolute value of SVLEN field"""
-        return abs(self.INFO["SVLEN"])
+        return abs(self.record.INFO["SVLEN"][0])
 
     @property
     def ref_length(self):
@@ -112,11 +112,15 @@ class Variant(object):
         """Return 1-indexed fully closed region"""
         # In correctly formatted VCF, POS is first base of event when zero-indexed, while
         # END is 1-indexed closed end or 0-indexed half-open end
-        return f"{self.record.CHROM}:{self.record.POS+1-flank}-{self.end+flank}"
+        return f"{self.chrom}:{self.pos+1-flank}-{self.end+flank}"
 
+    def left_flank_region_string(self, left_flank, right_flank=0):
+        """Return 1-indexed fully closed region"""
+        return f"{self.chrom}:{self.pos+1-left_flank}-{self.pos+right_flank}"
+    
     def right_flank_region_string(self, right_flank, left_flank=0):
         """Return 1-indexed fully closed region"""
-        return f"{self.record.CHROM}:{self.end+1+left_flank}-{self.end+right_flank}"
+        return f"{self.chrom}:{self.end+1+left_flank}-{self.end+right_flank}"
 
     def reference_sequence(self, region=None, flank=0):
         try:
@@ -131,8 +135,46 @@ class Variant(object):
             print(region)
             raise err
 
+    def _alt_seq(self, flank, ref_seq):
+        raise NotImplementedError()    
+
+    def synth_fasta(
+        self,
+        args,
+        allele_fasta=None,
+        ac=1,
+        ref_contig=None,
+        alt_contig=None,
+        line_width=60,
+    ):
+        region = self.region_string(args.flank)
+        ref_seq = self.reference_sequence(region=region)
+        if ac != 0:
+            alt_seq = self._alt_seq(args.flank, ref_seq)
+        
+        if ref_contig is None:
+            ref_contig = region.replace(":", "_").replace("-", "_")
+        if alt_contig is None:
+            alt_contig = ref_contig + "_alt"
+        if allele_fasta is None:
+            allele_fasta = tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".fasta", dir=args.tempdir
+            )
+
+        # Write out FASTA
+        print(">", ref_contig, sep="", file=allele_fasta)
+        if ac == 0 or ac == 1:
+            for line in textwrap.wrap(ref_seq, width=line_width):
+                print(line, file=allele_fasta)
+        print(">", alt_contig, sep="", file=allele_fasta)
+        if ac == 1 or ac == 2:
+            for line in textwrap.wrap(alt_seq, width=line_width):
+                print(line, file=allele_fasta)
+
+        return allele_fasta.name, ref_contig, alt_contig
+
     @cached_property
-    def alt_gc_fraction(self):
+    def ref_gc_fraction(self):
         gc = 0
         alignable_bases = 0
         for base in self.reference_sequence(flank=0):
@@ -242,48 +284,15 @@ class DeletionVariant(Variant):
         )
         return vcf_file.name + ".gz"
 
-    def synth_fasta(
-        self,
-        args,
-        allele_fasta=None,
-        ac=1,
-        ref_contig=None,
-        alt_contig=None,
-        line_width=60,
-    ):
-        # TODO: Normalize ref and alt contig lengths
-        region = self.region_string(args.flank)
-        ref_seq = self.reference_sequence(region=region)
-
+    def _alt_seq(self, flank, ref_seq):
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
-            alt_seq = ref_seq[: args.flank] + ref_seq[-args.flank :]
+            return ref_seq[: flank] + ref_seq[-flank :]
         elif isinstance(allele, vcf.model._Substitution):
-            alt_seq = ref_seq[: args.flank - 1] + str(allele) + ref_seq[-args.flank :]
+            return ref_seq[: flank - 1] + str(allele) + ref_seq[-flank :]
         else:
             raise ValueError("Unsupported allele type")
-
-        if ref_contig is None:
-            ref_contig = region.replace(":", "_").replace("-", "_")
-        if alt_contig is None:
-            alt_contig = ref_contig + "_alt"
-        if allele_fasta is None:
-            allele_fasta = tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".fasta", dir=args.tempdir
-            )
-
-        # Write out FASTA
-        print(">", ref_contig, sep="", file=allele_fasta)
-        if ac == 0 or ac == 1:
-            for line in textwrap.wrap(ref_seq, width=line_width):
-                print(line, file=allele_fasta)
-        print(">", alt_contig, sep="", file=allele_fasta)
-        if ac == 1 or ac == 2:
-            for line in textwrap.wrap(alt_seq, width=line_width):
-                print(line, file=allele_fasta)
-
-        return allele_fasta.name, ref_contig, alt_contig
 
     def gnomad_coverage_profile(
         self,
@@ -357,47 +366,15 @@ class InsertionVariant(Variant):
         else:
             return len(allele)
 
-    def synth_fasta(
-        self,
-        args,
-        allele_fasta=None,
-        ac=1,
-        ref_contig=None,
-        alt_contig=None,
-        line_width=60,
-    ):
-        region = self.region_string(args.flank)
-        ref_seq = self.reference_sequence(region=region)
-
+    def _alt_seq(self, flank, ref_seq):
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
-            assert False, "Symbolic insertions are not yet supported"
+            raise ValueError("Unsupported allele type")
         elif isinstance(allele, vcf.model._Substitution):
-            alt_seq = ref_seq[: args.flank - 1] + str(allele) + ref_seq[-args.flank :]
+            return ref_seq[: flank - 1] + str(allele) + ref_seq[flank :]
         else:
             raise ValueError("Unsupported allele type")
-
-        if ref_contig is None:
-            ref_contig = region.replace(":", "_").replace("-", "_")
-        if alt_contig is None:
-            alt_contig = ref_contig + "_alt"
-        if allele_fasta is None:
-            allele_fasta = tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".fasta", dir=args.tempdir
-            )
-
-        # Write out FASTA
-        print(">", ref_contig, sep="", file=allele_fasta)
-        if ac == 0 or ac == 1:
-            for line in textwrap.wrap(ref_seq, width=line_width):
-                print(line, file=allele_fasta)
-        print(">", alt_contig, sep="", file=allele_fasta)
-        if ac == 1 or ac == 2:
-            for line in textwrap.wrap(alt_seq, width=line_width):
-                print(line, file=allele_fasta)
-
-        return allele_fasta.name, ref_contig, alt_contig
 
 
 def consensus_fasta(args, input_vcf: str, output_file):
