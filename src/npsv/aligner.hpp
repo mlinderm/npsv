@@ -243,9 +243,5 @@ class Realigner {
   AlleleAlignments ref_, alt_;
 };
 
-namespace test {
-std::vector<AlleleAlignments::score_type> TestScoreAlignment(
-    const std::string& ref_sequence, const std::string& alignment_path);
-}
 
 }  // namespace npsv

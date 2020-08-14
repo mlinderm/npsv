@@ -340,33 +340,6 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             finally:
                 os.remove(output_bam_file.name)
 
-    def test_alignment_scoring(self):
-        try:
-            # Create SAM file with a single read
-            with tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".sam"
-            ) as sam_file:
-                # fmt: off
-                print("@HD", "VN:1.3", "SO:coordinate", sep="\t", file=sam_file)
-                print("@SQ", "SN:1", "LN:249250621", sep="\t", file=sam_file)
-                print("@RG", "ID:synth1", "LB:synth1", "PL:illumina", "PU:ART", "SM:HG002", sep="\t", file=sam_file)
-                print(
-                    "ref-354", "147", "1", "1", "60", "148M", "=", "2073433", "-435",
-                    "AGCAGCCGAAGCGCCTCCTTTCACTCTAGGGTCCAGGCATCCAGCAGCCGAAGCGCCTCCTTTCAATCCAGGGTCCACACATCCAGCAGCCGAAGCGCCCTCCTTTCAATCCAGGGTCCAGGCATCTAGCAGCCGAAGCGCCTCCTTT",
-                    "GG8CCGGGCGGGCGGGGGCGGCGGGGGGGGGGGCGGCGGGG=GGGJCCJGGGGGGCGGGGGGCG1GGCGG8GGCGC1GGCGJGCCGGJGJGJGGCGCJGJGJJCGGJJCJJGJJGJJJGJGCJJJGGJJJJGJJJGGGCGGGCGGCCC",
-                    "RG:Z:synth1",
-                    sep="\t",
-                    file=sam_file,
-                )
-                # fmt: on
-
-            # Read was aligned to very beginning of reference, so using read as reference should be all matches
-            ref_sequence = "AGCAGCCGAAGCGCCTCCTTTCACTCTAGGGTCCAGGCATCCAGCAGCCGAAGCGCCTCCTTTCAATCCAGGGTCCACACATCCAGCAGCCGAAGCGCCCTCCTTTCAATCCAGGGTCCAGGCATCTAGCAGCCGAAGCGCCTCCTTT"
-            scores = npsva.test_score_alignment(ref_sequence, sam_file.name)
-            self.assertEqual(len(scores), 1)
-            self.assertLess(scores[0], 0)
-        finally:
-            os.remove(sam_file.name)
 
     def test_insert_distribution(self):
         for record in vcf.Reader(self.vcf_file):
@@ -397,7 +370,7 @@ class NPSVAAlleleCountingTest(unittest.TestCase):
             )
 
 
-class NPSVAFragmentTest(unittest.TestCase):
+class NPSVARealignedFragmentsTest(unittest.TestCase):
     def setUp(self):
         self.vcf_file = io.StringIO(
             """##fileformat=VCFv4.1
@@ -410,8 +383,9 @@ class NPSVAFragmentTest(unittest.TestCase):
 """
         )
         self.args = argparse.Namespace(flank=3000)
+        self.input_fasta = os.path.join(FILE_DIR, "1_2073761_2073846_DEL.synth.fasta")
 
-    def test_baseline_straddle_counting(self):
+    def test_pipeline_straddle_counting(self):
         for record in vcf.Reader(self.vcf_file):
             self.assertTrue(record.is_sv)
             variant = Variant.from_pyvcf(record, None)
@@ -420,6 +394,7 @@ class NPSVAFragmentTest(unittest.TestCase):
             sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), input_bam)
 
             fragments = npsva.RealignedFragments(
+                self.input_fasta,
                 sample.mean_insert_size,
                 sample.std_insert_size,
                 sample.insert_size_density().as_dict(),
@@ -428,10 +403,71 @@ class NPSVAFragmentTest(unittest.TestCase):
             num_reads = fragments.gather_reads(variant.region_string(flank=self.args.flank))
             self.assertEqual(fragments.size(), 254)
 
-            print(variant.event_length)
-            pair_results = fragments.count_baseline_straddlers(
+            pair_results = fragments.count_pipeline_straddlers(
                 variant.region_string(), self.args.flank, -variant.event_length, 1.5, 10,
             )
             self.assertAlmostEqual(pair_results["alt_weighted_count"], 13.96, places=1)
             self.assertAlmostEqual(pair_results["insert_lower"], 0.0, places=2)
             self.assertAlmostEqual(pair_results["insert_upper"] / pair_results["insert_count"], 0.16, places=2)
+
+    def test_alignment_scoring(self):
+        try:
+            # Create SAM file with a single read
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".sam"
+            ) as sam_file:
+                # fmt: off
+                print("@HD", "VN:1.3", "SO:coordinate", sep="\t", file=sam_file)
+                print("@SQ", "SN:1", "LN:249250621", sep="\t", file=sam_file)
+                print("@RG", "ID:synth1", "LB:synth1", "PL:illumina", "PU:ART", "SM:HG002", sep="\t", file=sam_file)
+                print(
+                    "ref-354", "147", "1", "1", "60", "148M", "=", "2073433", "-435",
+                    "AGCAGCCGAAGCGCCTCCTTTCACTCTAGGGTCCAGGCATCCAGCAGCCGAAGCGCCTCCTTTCAATCCAGGGTCCACACATCCAGCAGCCGAAGCGCCCTCCTTTCAATCCAGGGTCCAGGCATCTAGCAGCCGAAGCGCCTCCTTT",
+                    "GG8CCGGGCGGGCGGGGGCGGCGGGGGGGGGGGCGGCGGGG=GGGJCCJGGGGGGCGGGGGGCG1GGCGG8GGCGC1GGCGJGCCGGJGJGJGGCGCJGJGJJCGGJJCJJGJJGJJJGJGCJJJGGJJJJGJJJGGGCGGGCGGCCC",
+                    "RG:Z:synth1",
+                    sep="\t",
+                    file=sam_file,
+                )
+                # fmt: on
+
+            # Read was aligned to very beginning of reference, so using read as reference should be all matches
+            ref_sequence = "AGCAGCCGAAGCGCCTCCTTTCACTCTAGGGTCCAGGCATCCAGCAGCCGAAGCGCCTCCTTTCAATCCAGGGTCCACACATCCAGCAGCCGAAGCGCCCTCCTTTCAATCCAGGGTCCAGGCATCTAGCAGCCGAAGCGCCTCCTTT"
+            scores = npsva.test_score_alignment(ref_sequence, sam_file.name)
+            self.assertEqual(len(scores), 1)
+            self.assertLess(scores[0], 0)
+        finally:
+            os.remove(sam_file.name)
+
+    def test_realigned_read_counting(self):
+        for record in vcf.Reader(self.vcf_file):
+            self.assertTrue(record.is_sv)
+            variant = Variant.from_pyvcf(record, None)
+
+            input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_2.bam")
+            sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), input_bam)
+
+            fragments = npsva.RealignedFragments(
+                self.input_fasta,
+                sample.mean_insert_size,
+                sample.std_insert_size,
+                sample.insert_size_density().as_dict(),
+                input_bam,
+            )
+            fragments.gather_reads(variant.region_string(flank=self.args.flank))
+            self.assertEqual(fragments.size(), 254)
+
+            ref_contig = "1_2073761_2073846_DEL"
+            alt_contig = "1_2073761_2073846_DEL_alt"
+            
+            rl_breakpoint = f"{ref_contig}:{self.args.flank}-{self.args.flank+1}"
+            al_breakpoint = f"{alt_contig}:{self.args.flank}-{self.args.flank+1}"
+            ref_length = variant.ref_length    
+            rr_breakpoint = f"{ref_contig}:{self.args.flank + ref_length - 1}-{self.args.flank + ref_length}"
+
+            counts, read_names = fragments.count_realigned_reads([(rl_breakpoint, rr_breakpoint, al_breakpoint, "")])            
+            self.assertEqual(counts["al"], 18.0)
+            self.assertEqual((counts["rl"] + counts["rr"]) / 2, 4.0)
+            for bp in ("rl", "rr", "al", "rl"):
+                self.assertEqual(len(read_names[bp]), counts[bp])
+
+    

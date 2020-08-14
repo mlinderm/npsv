@@ -206,39 +206,6 @@ def header(out_file=sys.stdout, ac=None):
     print(*actual_features, sep="\t", file=out_file)
 
 
-def prob_mapq(read):
-    """Obtain mapping probability of read from MAPQ"""
-    return 1 - 10 ** (-read.mapping_quality / 10.0)
-
-
-def pad_vcf_alleles(args, input_vcf, output_vcf_file):
-    vcf_reader = vcf.Reader(filename=input_vcf)
-    records = [record for record in vcf_reader]
-    assert len(records) == 1, "Can't pad more that one record"
-    record = records[0]
-
-    # Get the padding base from the reference
-    fasta = pysam.FastaFile(args.reference)
-    padding_base = fasta.fetch(record.CHROM, record.POS - 2, record.POS - 1)
-    fasta.close()
-
-    # Update the variant with a padding base
-    record = vcf.model._Record(
-        record.CHROM,
-        record.POS - 1,
-        record.ID,
-        padding_base + record.REF,
-        [vcf.model._Substitution(padding_base + str(alt)) for alt in record.ALT],
-        record.QUAL,
-        record.FILTER,
-        record.INFO,
-        record.FORMAT,
-        record._sample_indexes,
-        record.samples,
-    )
-    record_vcf_writer = vcf.Writer(output_vcf_file, vcf_reader)
-    record_vcf_writer.write_record(record)
-
 
 def extract_variant_features(
     args: argparse.Namespace,
@@ -339,6 +306,7 @@ def extract_variant_features(
             ):
                 alt_prob = fragment.prob_fragment_length(sample, event_length)
                 ref_prob = fragment.prob_fragment_length(sample)
+                print(fragment.query_name, ref_prob, alt_prob)
                 if (alt_prob + ref_prob) != 0.0:
                     p_disc = alt_prob / (alt_prob + ref_prob)
                     alt_paired += p_disc
@@ -381,7 +349,7 @@ def extract_variant_features(
 
             if left_ref_straddle ^ right_ref_straddle:
                 ref_paired += 0.5
-
+                print(fragment.query_name)
                 # Count all reference spanning reads towards insert_*
                 insert_total += 1
                 zscore = fragment.zscore_fragment_length(sample)
@@ -463,7 +431,57 @@ def extract_variant_features(
         return features
 
 
-def extract_deletion_features(
+def bases_in_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11):
+    """Compute coverage over 1-indexed, closed region"""
+    depth_result = pysam.depth(  # pylint: disable=no-member
+        "-Q", str(min_mapq),
+        "-q", str(min_baseq),
+        "-l", str(min_anchor),
+        "-r", region,
+        input_bam,
+    )
+    depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
+    if len(depths) > 0:
+        _, start, end = pysam.libcutils.parse_region(region=region)
+        mean_coverage = np.sum(depths) / (end - start)
+        return mean_coverage
+    else:
+        return 0.
+
+def count_realigned_reads(
+    args,
+    fragments,
+    variant,
+    ref_contig="ref",
+    alt_contig="alt",
+    count_straddle=True,
+    **kwargs,
+):
+
+    # Reference and alternate breakpoint spans in synthetic fasta (1-indexed)
+    ref_length = variant.ref_length
+    alt_length = variant.alt_length
+
+    # 1-indexed coordinates
+    rl_breakpoint = f"{ref_contig}:{args.flank}-{args.flank+1}"
+    rr_breakpoint = f"{ref_contig}:{args.flank + ref_length - 1}-{args.flank + ref_length}" if ref_length > 1 else ""
+    al_breakpoint = f"{alt_contig}:{args.flank}-{args.flank+1}"
+    ar_breakpoint = f"{alt_contig}:{args.flank + alt_length - 1}-{args.flank + alt_length}" if alt_length > 1 else ""
+
+    counts, read_names = fragments.count_realigned_reads(
+        [(rl_breakpoint, rr_breakpoint, al_breakpoint, ar_breakpoint)],
+        count_straddle=count_straddle,
+        **kwargs,
+    )
+
+    # If multiple breakpoints, average counts
+    ref_reads = (counts["rl"] + counts["rr"]) / (1 if ref_length == 1 else 2)
+    alt_reads = (counts["al"] + counts["ar"]) / (1 if alt_length == 1 else 2)
+
+    return ref_reads, alt_reads, read_names
+
+
+def extract_features(
     args: argparse.Namespace,
     variant: Variant,
     input_bam: str,
@@ -476,16 +494,28 @@ def extract_deletion_features(
 ):
     features = Features(variant, sample)
 
-    fragments = npsva.RealignedFragments(
-        sample.mean_insert_size,
-        sample.std_insert_size,
-        sample.insert_size_density().as_dict(),
-        input_bam,
-    )
+    try:
+        if input_fasta is None:
+            # Generate FASTA with ref and alt alleles formatted for use with bwa (via npsva)
+            fasta_path, ref_contig, alt_contig = variant.synth_fasta(args)
+        else:
+            fasta_path = input_fasta
+
+        fragments = npsva.RealignedFragments(
+            fasta_path,
+            sample.mean_insert_size,
+            sample.std_insert_size,
+            sample.insert_size_density().as_dict() if insert_hist else {},
+            input_bam,
+        )
+    finally:
+        # Clean up the FASTA file if we created one
+        if fasta_path != input_fasta:
+            os.remove(fasta_path)
 
     # Gather reads from the BAM file
 
-    pair_flank = 1000 #min(args.flank, sample.search_distance)
+    pair_flank = min(args.flank, sample.search_distance())  # Previously a fixed 1000
     ci_pos = variant.get_ci("CIPOS", default_ci=args.default_ci)
     ci_end = variant.get_ci("CIEND", default_ci=args.default_ci)
     
@@ -497,11 +527,22 @@ def extract_deletion_features(
         # When event is small gather reads across the entire event
         fragments.gather_reads(variant.region_string(flank=pair_flank))        
 
+    # Allele Count Evidence
 
+    ref_count, alt_count, *_ = count_realigned_reads(
+        args,
+        fragments,
+        variant,
+        input_fasta=fasta_path,
+        ref_contig=ref_contig,
+        alt_contig=alt_contig,
+        count_straddle=args.count_straddle,
+    )
+    features.read_counts = (ref_count, alt_count)
 
     # Read Pair Evidence
         
-    pair_results = fragments.count_baseline_straddlers(
+    pair_results = fragments.count_pipeline_straddlers(
         variant.region_string(), pair_flank, -variant.event_length, 1.5, args.min_anchor,
     )
 
@@ -514,31 +555,20 @@ def extract_deletion_features(
 
     # Coverage Evidence
 
-    def bases_in_region(region, region_length):
-        """Compute coverage over 1-indexed, closed region"""
-        depth_result = pysam.depth(  # pylint: disable=no-member
-            "-Q", str(args.min_mapq),
-            "-q", str(args.min_baseq),
-            "-l", str(args.min_anchor),
-            "-r", region,
-            input_bam,
-        )
-        depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
-        if len(depths) > 0:
-            _, start, end = pysam.libcutils.parse_region(region=region)
-            mean_coverage = np.sum(depths) / (end - start)
-            return mean_coverage
-        else:
-            return 0.
+    # Coverage currently only relevant for deletion events
+    if not variant.is_deletion:
+        return features
 
-    coverage = bases_in_region(variant.region_string(), variant.ref_length)
+    coverage = bases_in_region(input_bam, variant.region_string(), min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor)
     left_flank_coverage = bases_in_region(
+        input_bam,
         variant.left_flank_region_string(args.rel_coverage_flank),
-        args.rel_coverage_flank,
+        min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
     )
     right_flank_coverage = bases_in_region(
+        input_bam,
         variant.right_flank_region_string(args.rel_coverage_flank),
-        args.rel_coverage_flank,
+        min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
     )
 
     # Normalized coverage features adapted from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6479422/
@@ -615,17 +645,11 @@ def extract(
     # Extract features for all SVs
     vcf_reader = vcf.Reader(filename=input_vcf)
     for record in vcf_reader:
-        if not record.is_sv:
-            logging.warning("SVTYPE missing for variant %s. Skipping.", record.ID)
-            continue
-
-        kind = record.var_subtype
-        if kind != "DEL":
-            logging.warning("Unsupported SVTYPE for variant %s. Skipping", record.ID)
-            continue
-
         variant = Variant.from_pyvcf(record, args.reference)
-        features = extract_variant_features(
+        if variant is None:
+            logging.warning("Variant type or VCF record not supported for %s. Skipping.", record.ID)
+
+        features = extract_features(
             args,
             variant,
             input_bam,

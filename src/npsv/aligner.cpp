@@ -584,24 +584,6 @@ std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::stri
 
 namespace test {
 
-std::vector<AlleleAlignments::score_type> TestScoreAlignment(
-    const std::string& ref_sequence, const std::string& alignment_path) {
-  // Open the input BAM/SAM/CRAM and any output files
-  sl::BamReader reader;
-  reader.Open(alignment_path);
-  std::vector<AlleleAlignments::score_type> scores;
-
-  sl::BamRecord read;
-  while (reader.GetNextRecord(read)) {
-    auto log_prob = AlleleAlignments::ScoreAlignment(
-        read.Sequence(), read.Qualities(0), ref_sequence, read);
-    scores.push_back(log_prob);
-  }
-  
-  reader.Close();
-  return scores;
-}
-
 bool TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle) {
   sl::BamReader reader;
   reader.Open(sam_path);

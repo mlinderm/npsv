@@ -8,7 +8,7 @@ from npsv.npsv_options import *
 from npsv.variant import Variant, variant_descriptor, write_record_to_indexed_vcf
 from npsv.feature_extraction import (
     extract,
-    extract_variant_features,
+    extract_features,
     header,
 )
 from npsv.random_variants import random_deletions, CHROM_REGEX_SEX
@@ -294,7 +294,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                     single_sample_bam_file.name, "-b"
                 )
 
-                features = extract_variant_features(
+                features = extract_features(
                     extract_args,
                     variant,
                     single_sample_bam_file.name,
@@ -310,7 +310,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                 os.remove(single_sample_bam_file.name + ".bai")
 
     # Extract features from real data
-    features = extract_variant_features(
+    features = extract_features(
         extract_args,
         variant,
         args.bam,
