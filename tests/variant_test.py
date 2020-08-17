@@ -69,6 +69,13 @@ class SimpleDELVariantTestSuite(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
+    def test_region_strings(self):
+        record = next(vcf.Reader(self.vcf_file))
+        variant = Variant.from_pyvcf(record, None)
+        self.assertEqual(variant.region_string(),"1:899923-899992")
+        self.assertEqual(variant.left_flank_region_string(left_flank=2, right_flank=5),"1:899921-899927")
+        self.assertEqual(variant.right_flank_region_string(left_flank=2, right_flank=5),"1:899991-899997")
+
     def test_consensus_fasta(self):
         with patch.object(
             Variant,

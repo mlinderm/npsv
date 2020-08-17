@@ -334,7 +334,7 @@ class Sample(object):
     def insert_size_density(self, read_group=None):
         return self.get_library(read_group).insert_size_density
 
-    def search_distance(self, percentile=0.99, read_group=None) -> int:
+    def search_distance(self, percentile=0.999, read_group=None) -> int:
         """Return flanking distance for querying for reads determined by percentile of insert sizes
 
         Args:

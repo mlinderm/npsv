@@ -341,7 +341,7 @@ def main():
     os.makedirs(args.tempdir, exist_ok=True)
 
     # Initialize parallel computing setup
-    ray.init(num_cpus=args.threads, temp_dir=args.tempdir, include_webui=False)
+    ray.init(num_cpus=args.threads, temp_dir=args.tempdir, include_dashboard=False)
 
     # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
     if args.stats_path is not None:

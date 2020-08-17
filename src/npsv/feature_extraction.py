@@ -441,7 +441,7 @@ def bases_in_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11)
         input_bam,
     )
     depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
-    if len(depths) > 0:
+    if depths.size > 0:
         _, start, end = pysam.libcutils.parse_region(region=region)
         mean_coverage = np.sum(depths) / (end - start)
         return mean_coverage
@@ -515,7 +515,8 @@ def extract_features(
 
     # Gather reads from the BAM file
 
-    pair_flank = min(args.flank, sample.search_distance())  # Previously a fixed 1000
+    # Previously a fixed 1000 for paired-end and args.flank for realignment
+    pair_flank = min(args.flank, sample.search_distance())  
     ci_pos = variant.get_ci("CIPOS", default_ci=args.default_ci)
     ci_end = variant.get_ci("CIEND", default_ci=args.default_ci)
     
@@ -549,9 +550,13 @@ def extract_features(
     # TODO: Incorporate 'concordance' count features
     features.ref_span = pair_results["ref_weighted_count"]
     features.alt_span = pair_results["alt_weighted_count"]
-    if pair_results["insert_count"] > 0:
-        features.insert_lower = pair_results["insert_lower"] / pair_results["insert_count"]
-        features.insert_upper = pair_results["insert_upper"] / pair_results["insert_count"]
+    insert_count = pair_results["insert_count"]
+    if insert_count > 0:
+        features.insert_lower = pair_results["insert_lower"] / insert_count
+        features.insert_upper = pair_results["insert_upper"] / insert_count
+    else:
+        features.insert_lower = 0
+        features.insert_upper = 0
 
     # Coverage Evidence
 

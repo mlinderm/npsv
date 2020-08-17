@@ -31,6 +31,9 @@ class AlignedFragment {
   const sl::BamRecord& FirstRead() const { return first_; }
   const sl::BamRecord& SecondRead() const { return second_; }
 
+  int32_t RightPos1() const;
+  int32_t LeftPos2() const;
+
   void SetRead(const sl::BamRecord& read);
   
   bool Straddles(const sl::GenomicRegion& left_region, const sl::GenomicRegion& right_region, int min_overlap) const;

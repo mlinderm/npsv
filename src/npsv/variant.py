@@ -120,7 +120,7 @@ class Variant(object):
     
     def right_flank_region_string(self, right_flank, left_flank=0):
         """Return 1-indexed fully closed region"""
-        return f"{self.chrom}:{self.end+1+left_flank}-{self.end+right_flank}"
+        return f"{self.chrom}:{self.end+1-left_flank}-{self.end+right_flank}"
 
     def reference_sequence(self, region=None, flank=0):
         try:

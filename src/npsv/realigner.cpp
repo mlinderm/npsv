@@ -95,14 +95,27 @@ int AlignedFragment::InsertSize() const {
   return left_->FullInsertSize();
 }
 
+int32_t AlignedFragment::RightPos1() const {
+  // Convert to 1-indexed
+  return left_->MatePosition() + 1;
+}
+
+int32_t AlignedFragment::LeftPos2() const {
+  // Convert to 1-indexed
+  return left_->PositionEnd() + 1;
+}
+
+
 void AlignedFragment::SetRead(const sl::BamRecord& read) {
-  if (read.FirstFlag()) {
+  if (read.FirstFlag() && first_.isEmpty()) {
     first_ = read;
-  } else {
+  } else if (!read.FirstFlag() && second_.isEmpty()) {
     second_ = read;
   }
-  pyassert(first_.MatePosition() == second_.Position(), "Read and mate positions inconsistent");
-  left_ = first_.Position() <  second_.Position() ? &first_ : &second_;
+  if (HasFirst() && HasSecond()) {
+    pyassert(first_.MatePosition() == second_.Position(), "Read and mate positions inconsistent");
+    left_ = first_.Position() <  second_.Position() ? &first_ : &second_;
+  }
 }
 
 bool AlignedFragment::Straddles(const sl::GenomicRegion& left_region,
@@ -356,13 +369,15 @@ RealignedFragment::RealignedFragment(const AlignedFragment& original_alignment,
         read_pairs_.emplace_back(align1, align2, insert_dist);
       }
     }
-  } else {
-    // Handle situation with singleton reads
-    for (auto& align : first_alignments_)
-      read_pairs_.emplace_back(align);
-    for (auto& align : second_alignments_)
-      read_pairs_.emplace_back(align);
-  }
+  } 
+  // Previous NPSV only considered actual pairs
+  // else {
+  //   // Handle situation with singleton reads
+  //   for (auto& align : first_alignments_)
+  //     read_pairs_.emplace_back(align);
+  //   for (auto& align : second_alignments_)
+  //     read_pairs_.emplace_back(align);
+  // }
 
   // Sort alignments in descending order by score
   std::sort(read_pairs_.begin(), read_pairs_.end(), std::greater<>());
@@ -523,6 +538,11 @@ std::map<std::string,double> RealignedFragments::CountPipelineStraddlers(
     // we count reads that span the breakpoint as straddlers. This mimics the corresponding SVTyper feature.
     bool ref_straddle_left = fragment.Straddles(left_region, left_event_region, min_overlap);
     bool ref_straddle_right = fragment.Straddles(right_event_region, right_region, min_overlap);
+    
+    ref_straddle_left = ref_straddle_left &&  event_region.pos1 <= fragment.RightPos1() && fragment.RightPos1() <= event_region.pos2;
+    ref_straddle_right = ref_straddle_right && event_region.pos1 <= fragment.LeftPos2() && fragment.LeftPos2() <= event_region.pos2;
+    
+    
     if (ref_straddle_left || ref_straddle_right) {
       pyassert(ref_straddle_left ^ ref_straddle_right, "Reads straddling both breakpoints should have been filtered out");
       ref_weighted_count += 0.5;  // p_alt is by definition 0
