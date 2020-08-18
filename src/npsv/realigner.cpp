@@ -370,7 +370,8 @@ RealignedFragment::RealignedFragment(const AlignedFragment& original_alignment,
       }
     }
   } 
-  // Previous NPSV only considered actual pairs
+  // Previous NPSV only considered actual pairs, but incorporating 
+  // singletons slightly reduced accuracy
   // else {
   //   // Handle situation with singleton reads
   //   for (auto& align : first_alignments_)
@@ -479,20 +480,25 @@ double RealignedFragments::FragmentProbConcordance(double ref_prob, double alt_p
   return CONC_PRIOR * ref_prob / (CONC_PRIOR * ref_prob+ DISC_PRIOR * alt_prob);
 }
 
-
-std::map<std::string,double> RealignedFragments::CountPipelineStraddlers(
-    const std::string& event, int flank,
-    int alt_size_delta, double z_threshold, int min_overlap) const {
-  
+std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
+    const std::string& left_breakpoint, const std::string& right_breakpoint,
+    int flank, int alt_size_delta, double z_threshold, int min_overlap) const {
   // SeqLib GenomicRegions are 1-indexed with inclusive start and end coordinates
-  sl::GenomicRegion event_region(event, reader_.Header());
+  sl::GenomicRegion left_breakpoint_region(left_breakpoint, reader_.Header());
+  sl::GenomicRegion right_breakpoint_region(right_breakpoint, reader_.Header());
   
-  sl::GenomicRegion left_region(event_region.chr, event_region.pos1-flank, event_region.pos1-1);
-  sl::GenomicRegion right_region(event_region.chr, event_region.pos2+1, event_region.pos2+flank);
+  pyassert(left_breakpoint_region.Width() == 2 && right_breakpoint_region.Width() == 2, "Breakpoints should specify inclusive coordinates on each side of the breakpoint");
+  pyassert(flank >= 1, "Flank size must be >= 1");
+
+  sl::GenomicRegion left_region(left_breakpoint_region.chr, left_breakpoint_region.pos1-flank+1, left_breakpoint_region.pos1);
+  sl::GenomicRegion right_region(right_breakpoint_region.chr, right_breakpoint_region.pos2, right_breakpoint_region.pos2+flank-1);
   
   // Anchor regions within the event (on left and right side)
-  sl::GenomicRegion left_event_region(event_region.chr, event_region.pos1, std::min(event_region.pos2, event_region.pos1 + flank - 1));
-  sl::GenomicRegion right_event_region(event_region.chr, std::max(event_region.pos1, event_region.pos2 - flank + 1), event_region.pos2);
+  sl::GenomicRegion left_event_region, right_event_region;
+  if (left_breakpoint_region.chr == right_breakpoint_region.chr && left_breakpoint_region.pos2 <= right_breakpoint_region.pos1) {
+    left_event_region = { left_breakpoint_region.chr, left_breakpoint_region.pos2, std::min(left_breakpoint_region.pos2+flank-1, right_breakpoint_region.pos2) };
+    right_event_region = { right_breakpoint_region.chr, std::max(right_breakpoint_region.pos1-flank+1, left_breakpoint_region.pos2), right_breakpoint_region.pos1 };
+  }
 
   int insert_count = 0, insert_upper = 0, insert_lower = 0;
   double ref_weighted_count = 0., alt_weighted_count = 0., ref_conc_count = 0., alt_conc_count = 0.;
@@ -533,23 +539,23 @@ std::map<std::string,double> RealignedFragments::CountPipelineStraddlers(
       continue;
     }
 
-    // Read straddles one of the breakpoints (shouldn't straddle both). This is an expansive
-    // definition that doesn't require the "right" read to start in the "right" region. And thus
-    // we count reads that span the breakpoint as straddlers. This mimics the corresponding SVTyper feature.
-    bool ref_straddle_left = fragment.Straddles(left_region, left_event_region, min_overlap);
-    bool ref_straddle_right = fragment.Straddles(right_event_region, right_region, min_overlap);
-    
-    ref_straddle_left = ref_straddle_left &&  event_region.pos1 <= fragment.RightPos1() && fragment.RightPos1() <= event_region.pos2;
-    ref_straddle_right = ref_straddle_right && event_region.pos1 <= fragment.LeftPos2() && fragment.LeftPos2() <= event_region.pos2;
-    
-    
-    if (ref_straddle_left || ref_straddle_right) {
-      pyassert(ref_straddle_left ^ ref_straddle_right, "Reads straddling both breakpoints should have been filtered out");
-      ref_weighted_count += 0.5;  // p_alt is by definition 0
+    if (!left_event_region.IsEmpty() && !right_event_region.IsEmpty()) {
+      // Read straddles one of the breakpoints (shouldn't straddle both). This is more restrictive than SVTyper
+      // will count fragments where both reads start outside the event, but one read is anchored in the event.
+      bool ref_straddle_left = fragment.Straddles(left_region, left_event_region, min_overlap);
+      bool ref_straddle_right = fragment.Straddles(right_event_region, right_region, min_overlap);
       
-      double p_conc = FragmentProbConcordance(fragment, alt_size_delta);
-      if (p_conc > 0.5) {
-        ref_conc_count += fragment.ProbMapQ();
+      ref_straddle_left = ref_straddle_left && left_breakpoint_region.pos2 <= fragment.RightPos1() && fragment.RightPos1() <= right_breakpoint_region.pos1;
+      ref_straddle_right = ref_straddle_right && left_breakpoint_region.pos2 <= fragment.LeftPos2() && fragment.LeftPos2() <= right_breakpoint_region.pos1;
+      
+      if (ref_straddle_left || ref_straddle_right) {
+        pyassert(ref_straddle_left ^ ref_straddle_right, "Reads straddling both breakpoints should have been filtered out");
+        ref_weighted_count += 0.5;  // p_alt is by definition 0
+        
+        double p_conc = FragmentProbConcordance(fragment, alt_size_delta);
+        if (p_conc > 0.5) {
+          ref_conc_count += fragment.ProbMapQ();
+        }
       }
     }
 

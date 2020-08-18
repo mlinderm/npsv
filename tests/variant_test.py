@@ -76,6 +76,14 @@ class SimpleDELVariantTestSuite(unittest.TestCase):
         self.assertEqual(variant.left_flank_region_string(left_flank=2, right_flank=5),"1:899921-899927")
         self.assertEqual(variant.right_flank_region_string(left_flank=2, right_flank=5),"1:899991-899997")
 
+    def test_breakpoints(self):
+        record = next(vcf.Reader(self.vcf_file))
+        variant = Variant.from_pyvcf(record, None)
+        self.assertIsNotNone(variant)
+        self.assertEqual(variant.left_flank_region_string(left_flank=1, right_flank=1), "1:899922-899923")
+        self.assertEqual(variant.right_flank_region_string(left_flank=1, right_flank=1), "1:899992-899993")
+
+
     def test_consensus_fasta(self):
         with patch.object(
             Variant,
@@ -324,6 +332,13 @@ class SimpleINSVariantTestSuite(unittest.TestCase):
 
     def tearDown(self):
         self.tempdir.cleanup()
+
+    def test_breakpoints(self):
+        record = next(vcf.Reader(self.vcf_file))
+        variant = Variant.from_pyvcf(record, None)
+        self.assertIsNotNone(variant)
+        self.assertEqual(variant.left_flank_region_string(left_flank=1, right_flank=1), "1:931634-931635")
+        self.assertEqual(variant.right_flank_region_string(left_flank=1, right_flank=1), "1:931634-931635")
 
     def test_consensus_fasta(self):
         with patch.object(

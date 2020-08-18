@@ -403,8 +403,10 @@ class NPSVARealignedFragmentsTest(unittest.TestCase):
             num_reads = fragments.gather_reads(variant.region_string(flank=self.args.flank))
             self.assertEqual(fragments.size(), 254)
 
+            left_breakpoint = variant.left_flank_region_string(left_flank=1, right_flank=1)
+            right_breakpoint = variant.right_flank_region_string(left_flank=1, right_flank=1)
             pair_results = fragments.count_pipeline_straddlers(
-                variant.region_string(), self.args.flank, -variant.event_length, 1.5, 10,
+                left_breakpoint, right_breakpoint, self.args.flank, -variant.event_length, 1.5, 10,
             )
             self.assertAlmostEqual(pair_results["alt_weighted_count"], 13.96, places=1)
             self.assertAlmostEqual(pair_results["insert_lower"], 0.0, places=2)

@@ -225,8 +225,10 @@ class RealignedFragments {
 
   int GatherReads(const std::string& region, int max_reads);
 
-  std::map<std::string,double> CountPipelineStraddlers(const std::string& event, int flank,
-    int alt_size_delta, double z_threshold=1.5, int min_overlap=1) const;
+  std::map<std::string, double> CountPipelineStraddlers(
+      const std::string& left_breakpoint, const std::string& right_breakpoint,
+      int flank, int alt_size_delta, double z_threshold = 1.5,
+      int min_overlap = 1) const;
 
   std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::string> > > CountRealignedReads(const BreakpointList& breakpoints, py::kwargs kwargs);
 

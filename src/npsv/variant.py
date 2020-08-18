@@ -109,7 +109,7 @@ class Variant(object):
                 return [-default_ci, default_ci]
 
     def region_string(self, flank=0):
-        """Return 1-indexed fully closed region"""
+        """Return 1-indexed fully closed region describing inside the variant, e.g. the deleted region"""
         # In correctly formatted VCF, POS is first base of event when zero-indexed, while
         # END is 1-indexed closed end or 0-indexed half-open end
         return f"{self.chrom}:{self.pos+1-flank}-{self.end+flank}"
@@ -355,6 +355,11 @@ class InsertionVariant(Variant):
     @property
     def ref_length(self):
         return 1
+
+    def region_string(self, flank=0):
+        if flank == 0:
+            raise ValueError("Can't represent interior region of an insertion")
+        return super().region_string(flank=flank)  
 
     @property
     def alt_length(self):

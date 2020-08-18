@@ -542,9 +542,11 @@ def extract_features(
     features.read_counts = (ref_count, alt_count)
 
     # Read Pair Evidence
-        
+    left_breakpoint = variant.left_flank_region_string(left_flank=1, right_flank=1)
+    right_breakpoint = variant.right_flank_region_string(left_flank=1, right_flank=1)
+    
     pair_results = fragments.count_pipeline_straddlers(
-        variant.region_string(), pair_flank, -variant.event_length, 1.5, args.min_anchor,
+        left_breakpoint, right_breakpoint, pair_flank, -variant.event_length, 1.5, args.min_anchor,
     )
 
     # TODO: Incorporate 'concordance' count features
