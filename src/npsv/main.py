@@ -11,7 +11,7 @@ from npsv.feature_extraction import (
     extract_features,
     header,
 )
-from npsv.random_variants import random_deletions, CHROM_REGEX_SEX
+from npsv.random_variants import random_variants, CHROM_REGEX_SEX
 from npsv.genotyper import genotype_vcf
 from npsv.sample import Sample
 from npsv.simulation import GNOMAD_MULT_COVG
@@ -190,12 +190,12 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
         # Generate random variants as the null model
         random_vcf_path = os.path.join(args.output, description + ".random.vcf")
         with open(random_vcf_path, "w") as random_vcf_file:
-            random_deletions(
+            random_variants(
+                variant,
                 args.reference,
                 args.genome,
                 args.gaps,
                 random_vcf_file,
-                size=variant.event_length,
                 n=replicates,
                 use_X=use_X,
                 only_sex=only_sex,

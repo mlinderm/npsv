@@ -367,7 +367,7 @@ class InsertionVariant(Variant):
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
             # Symbolic allele
-            return int(self.record.INFO["SVLEN"])
+            return self.event_length + 1
         else:
             return len(allele)
 
