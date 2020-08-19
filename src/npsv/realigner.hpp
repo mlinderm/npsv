@@ -1,13 +1,14 @@
 #pragma once
+
 #include <pybind11/pybind11.h>
 #include <functional>
 #include <iosfwd>
 #include <string>
 #include <unordered_map>
 #include <tuple>
-#include "SeqLib/BamReader.h"
 
-#include "aligner.hpp"
+#include "SeqLib/BamReader.h"
+#include "SeqLib/BWAWrapper.h"
 
 namespace py = pybind11;
 namespace sl = SeqLib;
@@ -18,6 +19,31 @@ const double CONC_PRIOR = 0.95;
 const double DISC_PRIOR = 1 - CONC_PRIOR;
 
 class IndexedSequence;
+
+enum GenomicRegionOverlap {
+  NoOverlap = 0,
+  PartialOverlap = 1,
+  ContainsArg = 2,
+  ContainedInArg = 3
+};
+
+enum SAMFlags { SecondaryAlignment = 256, SupplementaryAlignment = 2048 };
+
+class InsertSizeDistribution {
+ public:
+  typedef std::map<int, double> density_type;
+
+  InsertSizeDistribution(double mean, double std, const density_type& density)
+      : mean_(mean), std_(std), density_(density) {}
+
+  double operator()(int insert_size) const;
+
+  double ZScore(int insert_size) const { return (insert_size - mean_) / std_; }
+
+ private:
+  double mean_, std_;
+  density_type density_;
+};
 
 class AlignedFragment {
  public:
@@ -252,6 +278,8 @@ class RealignedFragments {
 };
 
 namespace test {
+  bool TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle);
+
   std::vector<double> TestScoreAlignment(const std::string& ref_seq,
                                        const std::string& aln_path);
 };

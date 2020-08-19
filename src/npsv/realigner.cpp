@@ -1,20 +1,10 @@
+#include "utility.hpp"
 #include "realigner.hpp"
 
-#include <stdexcept>
 #include <cmath>
 
 #include "SeqLib/FastqReader.h"
 
-namespace {
-void assert_throw(const bool cond, const std::string& text,
-                  const std::string& file, const int line) {
-  if (!cond) {
-    throw std::runtime_error(text + ". In file: " + file +
-                             " on line: " + std::to_string(line));
-  }
-}
-
-#define pyassert(cond, text) assert_throw(cond, text, __FILE__, __LINE__)
 
 namespace {
 double LogSumPow(double acc, double prob) {
@@ -45,9 +35,7 @@ double GetDoubleTag(const sl::BamRecord& read, const std::string& tag) {
   if (type != 'd') throw std::invalid_argument("Tag is not of double type");
 
   return result;
-}
 }  
-
 
 int OverlapRegion(int32_t read_start, int32_t read_end,
             const sl::GenomicRegion& region) {
@@ -76,6 +64,18 @@ int MateOverlapRegion(const sl::BamRecord& read, const sl::GenomicRegion& region
 }  // namespace
 
 namespace npsv {
+double InsertSizeDistribution::operator()(int insert_size) const {
+  auto entry = density_.find(insert_size);
+  if (entry != density_.end()) {
+    return entry->second;
+  } else {
+    // https://stackoverflow.com/a/10848293
+    static const double inv_sqrt_2pi = 0.3989422804014327;
+    double a = (insert_size - mean_) / std_;
+    return inv_sqrt_2pi / std_ * std::exp(-0.5 * a * a);
+  }
+}
+  
 AlignedFragment::AlignedFragment(const sl::BamRecord& read) {
   if (read.FirstFlag()) {
     first_ = read;
@@ -141,7 +141,6 @@ double AlignedFragment::ProbMapQ() const {
 std::ostream& operator<<(std::ostream& os, const AlignedFragment& fragment) {
   return (os << fragment.first_ << std::endl << fragment.second_);
 }
-
 
 
 namespace {
@@ -597,7 +596,7 @@ std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::stri
 
   RealignedFragment::score_type min_score_delta = 1.;
   if (kwargs && kwargs.contains("min_score_delta")) {
-    min_score_delta = py::cast<Fragment::score_type>(kwargs["min_score_delta"]);
+    min_score_delta = py::cast<AlleleOverlap::score_type>(kwargs["min_score_delta"]);
   }
 
   bool count_straddle = true;
@@ -703,12 +702,40 @@ std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::stri
 
 namespace test {
 
+
+bool TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle) {
+  InsertSizeDistribution insert_dist(570., 163., InsertSizeDistribution::density_type());
+  
+  sl::BamReader reader;
+  reader.Open(sam_path);
+
+  sl::BamRecord read1, read2;
+  pyassert(reader.GetNextRecord(read1), "Missing first read");
+  pyassert(reader.GetNextRecord(read2), "Missing second read");
+  reader.Close();
+
+  AddDoubleTag(read1, "as", -10.);
+  AddDoubleTag(read2, "as", -10.);
+
+  RealignedReadPair read_pair(read1, read2, insert_dist);
+
+  // SeqLib reverses samtools 1-indexing to 0-indexing conversion so the GenomicRegion constructed
+  // this way matches the region string exactly and assumes inclusive start and exclusive end. But
+  // the AsGenomicRegion method uses the BAM specification of a 0-indexed inclusive start and exclusive end.
+  // The GenomicRegion overlap computation assumes 1-indexed inclusive start and end coordinates.
+
+  sl::GenomicRegion breakpoint_region(breakpoint, reader.Header());
+  BreakpointOverlap overlap(read_pair, breakpoint_region, BreakpointOverlap::Allele::RefLeft, -10., count_straddle);
+
+  return overlap.HasOverlap();
+}
+
 std::vector<double> TestScoreAlignment(const std::string& ref_seq,
                                        const std::string& aln_path) {
   // Open the input BAM/SAM/CRAM
   sl::BamReader reader;
   reader.Open(aln_path);
-  std::vector<AlleleAlignments::score_type> scores;
+  std::vector<double> scores;
 
   sl::BamRecord read;
   while (reader.GetNextRecord(read)) {

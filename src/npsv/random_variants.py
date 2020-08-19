@@ -142,15 +142,15 @@ def random_variant(
     n=1,
     flank=0,
 ):
+    # TODO: Handle complex variants more precisely, at present we only model the change in length (i.e. SVLEN)
     if variant.is_deletion:
         random_deletion(variant.event_length, ref_reader, contigs, gaps, output_file, n=n, flank=flank)
     elif variant.is_insertion:
         insertion_seq = variant._alt_seq(flank=0, ref_seq="")
         
         # insertion_seq should include the padding base
-        assert len(insertion_seq) == variant.event_length + 1
-        random_insertion(insertion_seq[1:], ref_reader, contigs, gaps, output_file, n=n, flank=flank)
-
+        assert len(insertion_seq) > variant.event_length
+        random_insertion(insertion_seq[-variant.event_length:], ref_reader, contigs, gaps, output_file, n=n, flank=flank)
 
 
 def random_variants(

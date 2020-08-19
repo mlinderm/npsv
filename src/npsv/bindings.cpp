@@ -1,6 +1,5 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include "aligner.hpp"
 #include "realigner.hpp"
 #include "simulation.hpp"
 
@@ -8,11 +7,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(npsva, m) {
   m.doc() = "NPSV alignment tools";
-  
-  py::class_<npsv::Realigner>(m, "Realigner")
-      .def(py::init<const std::string&, double, double, const npsv::InsertSizeDistribution::density_type&>())
-      .def("count_alignments", &npsv::Realigner::CountAlignments);
-  
+   
   py::class_<npsv::RealignedFragments>(m, "RealignedFragments")
       .def(py::init<const std::string&, double, double, const npsv::InsertSizeDistribution::density_type&, const std::string&>())
       .def("size", &npsv::RealignedFragments::size)
