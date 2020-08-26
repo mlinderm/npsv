@@ -52,9 +52,12 @@ def propose_variants(args, input_vcf: str, output_file):
 
     for record in vcf_reader:
         variant = Variant.from_pyvcf(record)
-        assert variant.is_deletion, "Only deletions currently supported"
         assert variant.id, "Variant proposal requires all variants to have a unique ID"
         vcf_writer.write_record(variant.record)
+        
+        if not variant.is_deletion:
+            # Only deletions currently supported
+            continue
 
         if variant.event_length > args.hybrid_threshold:
             continue

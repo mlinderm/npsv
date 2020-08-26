@@ -124,6 +124,7 @@ setup(
         "scripts/vcf2bed",
         "scripts/vcf2samplot",
         "scripts/svviz22vcf",
+        "scripts/padAlleles",
     ],
     entry_points="""
         [console_scripts]

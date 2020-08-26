@@ -367,15 +367,20 @@ def main():
         )
 
     # For each variant generate synthetic bam file(s) and extract relevant evidence
+    observed_variants = {}
     record_results = []
     vcf_reader = vcf.Reader(filename=args.input)
-    for record in tqdm(vcf_reader, desc="Preparing variants"):
+    for i, record in enumerate(tqdm(vcf_reader, desc="Preparing variants")):
         variant = Variant.from_pyvcf(record, args.reference)
         # npsv currently only supports deletions
         if variant is None:
             continue
 
+        # NPSV currently does not support variants with duplicate start and end coordinates
         description = variant_descriptor(record)
+        if observed_variants.setdefault(description, i) != i:
+            logging.warning("Skipping variant with duplicate description %s", description)
+            continue
 
         # Construct single variant VCF outside of worker so we don't need to pass the reader into the thread
         variant_vcf_path = os.path.join(args.output, description + ".vcf")
@@ -411,8 +416,10 @@ def main():
         ):
             with open(sim_result, "rb") as source:
                 shutil.copyfileobj(source, sim_sink)
+            sim_sink.flush()
             with open(real_result, "rb") as source:
                 shutil.copyfileobj(source, real_sink)
+            real_sink.flush()
 
     # Perform genotyping
     with open(os.path.join(args.output, args.prefix + ".npsv.vcf"), "w") as gt_vcf_file:

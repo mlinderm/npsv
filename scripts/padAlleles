@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+import argparse, logging, os, re, sys
+import pysam
+import vcf
+
+
+def makeArgParser():
+    """
+    Returns an argument parser parser with the command line arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Pad VCF alleles",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-i", "--input", type=str, help="Path to input vcf file", required=True
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        action="store",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+    parser.add_argument(
+        "-r",
+        "--reference-sequence",
+        help="Reference fasta file",
+        type=str,
+        dest="reference",
+        required=True,
+    )
+    return parser
+
+
+def main(args):
+    # Load the reference FASTA
+    fasta = pysam.FastaFile(args.reference)
+
+    vcf_reader = vcf.Reader(filename=args.input)
+    vcf_writer = vcf.Writer(args.output, vcf_reader)
+    for record in vcf_reader:
+        assert len(record.ALT) == 1, "Multiple alternates are not supported"
+        allele = record.ALT[0]
+        if (
+            isinstance(allele, vcf.model._Substitution)
+            and record.REF[0] != str(allele)[0]
+        ):
+            # Using the 0-indexed interface to pySAM
+            padding_base = fasta.fetch(record.CHROM, record.POS - 2, record.POS - 1)
+
+            # Update the variant with a padding base
+            record = vcf.model._Record(
+                record.CHROM,
+                record.POS - 1,
+                record.ID,
+                padding_base + record.REF,
+                [
+                    vcf.model._Substitution(padding_base + str(alt))
+                    for alt in record.ALT
+                ],
+                record.QUAL,
+                record.FILTER,
+                record.INFO,
+                record.FORMAT,
+                record._sample_indexes,
+                record.samples,
+            )
+        vcf_writer.write_record(record)
+
+
+if __name__ == "__main__":
+    parser = makeArgParser()
+    args = parser.parse_args()
+    main(args)
