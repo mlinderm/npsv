@@ -132,11 +132,10 @@ def bases_in_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11)
         "-r", region,
         input_bam,
     )
-    depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
-    if depths.size > 0:
+    if len(depth_result) > 0:
+        depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
         _, start, end = pysam.libcutils.parse_region(region=region)
-        mean_coverage = np.sum(depths) / (end - start)
-        return mean_coverage
+        return np.sum(depths) / (end - start)
     else:
         return 0.
 
