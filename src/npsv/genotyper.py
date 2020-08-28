@@ -28,43 +28,14 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 if logging.getLogger(__name__).getEffectiveLevel() != logging.DEBUG:
     warnings.simplefilter(action="ignore", category=UserWarning)
 
+GENOTYPING_MODES = ["single", "variant", "hybrid"]
+CLASSIFIERS = ["svm", "rf"]
+
 VAR_COL = ["#CHROM", "START", "END", "TYPE", "SAMPLE"]
 FEATURE_COL = Features.FEATURES
 KLASS_COL = "AC"
 SAMPLE_COL = "SAMPLE"
-OUTPUT_COL = (
-    VAR_COL
-    + FEATURE_COL
-    + [
-        "AC",
-        "REF_GENOTYPE_LIKELIHOOD",
-        "HET_GENOTYPE_LIKELIHOOD",
-        "HOM_GENOTYPE_LIKELIHOOD",
-        "ALT_GENOTYPE_LIKELIHOOD",
-        "REF_QUAL",
-        "ALT_QUAL",
-        "CLASSIFIER",
-    ]
-)
-
-# Extracted and derived features
-FEATURES = [
-    "SVLEN",
-    "INSERT_LOWER",
-    "INSERT_UPPER",
-    "DHFC",
-    "DHBFC",
-    "DHFFC",
-    "REF_READ_REL",
-    "ALT_READ_REL",
-    "PROB_HOMREF",
-    "PROB_HET",
-    "PROB_HOMALT",
-    "REF_SPAN_REL",
-    "ALT_SPAN_REL",
-]
-
-ABSOLUTE_FEATURES = ["REF_SPLIT", "ALT_SPLIT", "REF_SPAN", "ALT_SPAN", "COVG"]
+TYPE_COL = "TYPE"
 
 MAHAL_FEATURES = [
     "INSERT_LOWER",
@@ -78,19 +49,35 @@ MAHAL_FEATURES = [
     "ALT_SPAN_REL",
 ]
 
-RF_FEATURES = [
-    "SVLEN",
-    "INSERT_LOWER",
-    "INSERT_UPPER",
-    # "DHFC",
-    # "DHBFC",
-    "DHFFC",
-    "ALT_READ_REL",
-    "ALT_SPAN_REL",
-    "PROB_HOMREF",
-    "PROB_HET",
-    "PROB_HOMALT",
-]
+
+CLASSIFIER_FEATURES = {
+    "svm": [
+        "SVLEN",
+        "REF_READ_REL",
+        "ALT_READ_REL",
+        "REF_SPAN_REL",
+        "ALT_SPAN_REL",
+        "INSERT_LOWER",
+        "INSERT_UPPER",
+        "DHFC",
+        "DHBFC",
+        "DHFFC",
+        "PROB_HOMREF",
+        "PROB_HET",
+        "PROB_HOMALT",
+    ],
+    "rf": [
+        "SVLEN",
+        "ALT_READ_REL",
+        "ALT_SPAN_REL",
+        "INSERT_LOWER",
+        "INSERT_UPPER",
+        "DHFFC",
+        "PROB_HOMREF",
+        "PROB_HET",
+        "PROB_HOMALT",
+    ],
+}
 
 C_RANGE = np.logspace(-2, 10, 13)
 GAMMA_RANGE = np.logspace(-9, 3, 13)
@@ -134,14 +121,14 @@ def record_to_var_col(record: vcf.model._Record, sample):
 def pred_to_vcf(real_data, pred, prob=None, dm2=None) -> str:
     """Prediction to VCF call field for sample"""
     assert real_data.shape[0] == 1, "Real data should have just one variant"
-    
+
     # Compute PL
     if prob is not None:
-        pl = -10.*np.log10(prob + 1e-11)
+        pl = -10.0 * np.log10(prob + 1e-11)
         pl = np.clip(np.round(pl - np.min(pl)).astype(int), 0, 99)
-    
+
     return "{gt}:{grr},{gra}:{pl}:{md}".format(
-        gt=AC_TO_GT[pred] if pred is not None else "./.",
+        gt=AC_TO_GT[pred] if pred in (0, 1, 2) else "./.",
         grr=int(real_data["REF_SPLIT"].iloc[0]),
         gra=int(real_data["ALT_SPLIT"].iloc[0]),
         pl=",".join(map(str, pl)) if prob is not None else ".",
@@ -157,7 +144,7 @@ def rf_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     clf = RandomForestClassifier(n_estimators=100, max_features="auto", max_depth=None)
     clf = clf.fit(x, y)
 
-     # Predict the real data
+    # Predict the real data
     real_x = real_data[features]
     pred = clf.predict(real_x)
     prob = clf.predict_proba(real_x)
@@ -216,17 +203,13 @@ def add_derived_features(data):
     """Update data with derived features"""
     # Binomial probability features adapted from svviz2 and
     # https://www.sciencedirect.com/science/article/pii/S0092867418316337#sec4
-    
+
     # Round since we can get fraction read counts when there are multiple breakpoints
     ref_reads = np.ceil(data["REF_SPLIT"])
     alt_reads = np.ceil(data["ALT_SPLIT"])
     total_reads = ref_reads + alt_reads
-    data["REF_READ_REL"] = np.where(
-        total_reads == 0, 0, ref_reads / total_reads
-    )
-    data["ALT_READ_REL"] = np.where(
-        total_reads == 0, 0, alt_reads / total_reads
-    )
+    data["REF_READ_REL"] = np.where(total_reads == 0, 0, ref_reads / total_reads)
+    data["ALT_READ_REL"] = np.where(total_reads == 0, 0, alt_reads / total_reads)
 
     data["PROB_HOMREF"] = binom.pmf(alt_reads, total_reads, 0.05)
     data["PROB_HET"] = binom.pmf(alt_reads, total_reads, 0.5)
@@ -262,7 +245,7 @@ def genotype_vcf(
         output_file ([type], optional): File object for writing VCF. Defaults to sys.stdout.
     """
     # Load simulation and real data
-    if not args.local and args.filter_bed is not None:
+    if args.gt_mode in ("single", "hybrid") and args.filter_bed is not None:
         # If provided, filter training data by BED file
         filter_bed = bed.BedTool(args.filter_bed)
         sim_bed = bed.BedTool(input_sim)
@@ -272,7 +255,6 @@ def genotype_vcf(
             names=get_tsv_columns(input_sim),
             dtype={"#CHROM": str, "SAMPLE": str, "AC": int},
         )
-
     else:
         sim_data = pd.read_table(
             input_sim, na_values=".", dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
@@ -288,92 +270,101 @@ def genotype_vcf(
             vcf_reader._reader.close()
         return
 
-    add_derived_features(sim_data)
+    real_data = pd.read_table(
+        input_real, na_values=".", dtype={"#CHROM": str, "SAMPLE": str}
+    )
 
-    real_data = pd.read_table(input_real, na_values=".", dtype={"#CHROM": str, "SAMPLE": str})
+    # Add derived features
+    add_derived_features(sim_data)
     add_derived_features(real_data)
 
-    # Drop any columns that are entirely NA
-    sim_data = sim_data.dropna(axis=1, how="all")
-    real_data = real_data.dropna(axis=1, how="all")
-
-    if not args.local:
-        gt_mode = "single"
-    elif args.hybrid_threshold < sys.maxsize:
-        gt_mode = "hybrid"
-    else:
-        gt_mode = "pervariant"
-
-    if gt_mode == "single" or gt_mode == "hybrid":
-        single_classifier = args.classifier if gt_mode == "single" else args.hybrid_classifier
-        
-        # Filter to available features
-        if single_classifier == "svm":
-            desired_features = set(FEATURES)
-        elif single_classifier == "rf":
-            desired_features = set(RF_FEATURES)
-        else:
-            raise NotImplementedError(f"Unknown classifier type: {single_classifier}")
-        single_features = list(desired_features & set(sim_data) & set(real_data))
-
-        # Perform "single model" genotyping by training on the entire simulated data
-        downsample_sim_data = (
-            sim_data.groupby(VAR_COL + [KLASS_COL])
-            .head(args.downsample)
-            .reset_index(drop=True)
+    if args.gt_mode in ("single", "hybrid"):
+        single_classifier = (
+            args.classifier if args.gt_mode == "single" else args.hybrid_classifier
         )
+        single_pred = np.full(real_data.shape[0], -1, dtype=int)
+        single_prob = np.full((real_data.shape[0], 3), 0, dtype=float)
 
-        # Drop rows with na, inf, etc. from training data
-        with pd.option_context("mode.use_inf_as_na", True):
-            downsample_sim_data = downsample_sim_data.dropna(axis=0, subset=single_features)
+        # Construct clsasifiers for each variant type
+        typed_sim_data = sim_data.groupby(TYPE_COL)
+        typed_real_data = real_data.groupby(TYPE_COL)
+        for variant_type, sim_group in typed_sim_data:
+            real_group = typed_real_data.get_group(variant_type)
 
-        # Expand here with additional classifiers
-        logging.info(
-            "Building 'single model' %s classifier based on simulated data with features: %s", single_classifier, ", ".join(single_features)
-        )
-        if single_classifier == "svm":
-            single_pred, single_prob = svm_classify(downsample_sim_data, real_data, features=single_features)
-        elif single_classifier == "rf":
-            single_pred, single_prob = rf_classify(downsample_sim_data, real_data, features=single_features)
-        else:
-            raise NotImplementedError(f"Unknown classifier type: {single_classifier}")
+            sim_group = (
+                sim_group.groupby(VAR_COL + [KLASS_COL])
+                .head(args.downsample)
+                .reset_index(drop=True)
+            )
 
+            with pd.option_context("mode.use_inf_as_na", True):
+                # Drop any columns that are entirely NA
+                sim_group = sim_group.dropna(axis=1, how="all")
+                real_group = real_group.dropna(axis=1, how="all")
+
+                # Filter to available features
+                desired_features = CLASSIFIER_FEATURES[single_classifier]
+                single_features = list(
+                    set(desired_features) & set(sim_group) & set(real_group)
+                )
+
+                # Then drop rows with na, inf, etc. from training data
+                sim_group = sim_group.dropna(axis=0, subset=single_features)
+
+            # Expand here with additional classifiers
+            logging.info(
+                "Building 'single model' %s classifier for %s variants with features: %s",
+                single_classifier,
+                variant_type,
+                ", ".join(single_features),
+            )
+            if single_classifier == "svm":
+                pred, prob = svm_classify(
+                    sim_group, real_group, features=single_features
+                )
+            elif single_classifier == "rf":
+                pred, prob = rf_classify(
+                    sim_group, real_group, features=single_features
+                )
+
+            # Reconstruct original vectors
+            indices = typed_real_data.indices[variant_type]
+            single_pred[indices] = pred
+            single_prob[indices] = prob
+
+        # Report accuracy is actual class is defined
         if logging.getLogger().isEnabledFor(logging.DEBUG) and KLASS_COL in real_data:
             logging.debug(
                 "Accuracy compared to reported %s in 'real' data: %f",
                 KLASS_COL,
                 accuracy_score(real_data[KLASS_COL], single_pred),
             )
-
-        # Report accuracy for Bayesian model as a comparison
-        if logging.getLogger().isEnabledFor(logging.DEBUG) and KLASS_COL in real_data:
-            accuracy = accuracy_score(
+            bayesian_accuracy = accuracy_score(
                 real_data[KLASS_COL],
                 np.argmax(
-                    real_data[["PROB_HOMREF", "PROB_HET", "PROB_HOMALT"]].values, axis=1
+                    real_data[["PROB_HOMREF", "PROB_HET", "PROB_HOMALT"]].values,
+                    axis=1,
                 ),
             )
             logging.debug(
                 "Accuracy for Bayesian model compared to reported %s in 'real' data: %f",
                 KLASS_COL,
-                accuracy,
+                bayesian_accuracy,
             )
-    
-    if gt_mode == "pervariant" or gt_mode == "hybrid":
+
+    if args.gt_mode in ("variant", "hybrid"):
         # Prepare simulated data for per-variant classifier
         grouped_sim_data = sim_data.groupby(VAR_COL)
 
         # Filter to available features for per-variant classifier
-        if args.classifier == "svm":
-            desired_features = set(FEATURES)
-        elif args.classifier == "rf":
-            desired_features = set(RF_FEATURES)
-        else:
-            raise NotImplementedError(f"Unknown classifier type: {single_classifier}")
-        pervariant_features = list(desired_features & set(sim_data) & set(real_data))
-
+        desired_features = CLASSIFIER_FEATURES[args.classifier]
+        pervariant_features = list(
+            set(desired_features) & set(sim_data) & set(real_data)
+        )
         logging.info(
-            "Building 'per-variant' %s classifiers based on simulated data with features: %s", args.classifier, ", ".join(pervariant_features)
+            "Building 'per-variant' %s classifiers based on simulated data with features: %s",
+            args.classifier,
+            ", ".join(pervariant_features),
         )
 
     # Prepare real data to write out per-variant predictions
@@ -384,18 +375,19 @@ def genotype_vcf(
     vcf_reader = vcf.Reader(filename=input_vcf)  # Original VCF file
 
     # Add new fields to the header
-    vcf_reader.metadata["npsv_mode"] = [gt_mode]
-    if gt_mode == "single" or gt_mode == "hybrid":
-        vcf_reader.metadata["npsv_single_classifier"] = [f"{single_classifier}({','.join(single_features)})"]
-    if gt_mode == "pervariant" or gt_mode == "hybrid":
-        vcf_reader.metadata["npsv_pervariant_classifier"] = [f"{args.classifier}({','.join(pervariant_features)})"]
+    vcf_reader.metadata["npsv_mode"] = [args.gt_mode]
+    if args.gt_mode in ("single", "hybrid"):
+        vcf_reader.metadata["npsv_single_classifier"] = [
+            f"{single_classifier}({','.join(single_features)})"
+        ]
+    if args.gt_mode in ("variant", "hybrid"):
+        vcf_reader.metadata["npsv_variant_classifier"] = [
+            f"{args.classifier}({','.join(pervariant_features)})"
+        ]
     vcf_reader.metadata["npsv_dm2"] = [f"mahal({','.join(MAHAL_FEATURES)})"]
     vcf_reader.formats["GT"] = vcf.parser._Format("GT", 1, "String", "Genotype")
     vcf_reader.formats["GR"] = vcf.parser._Format(
-        "GR",
-        "R",
-        "Integer",
-        "Reads mapped to reference and alternate sequences",
+        "GR", "R", "Integer", "Reads mapped to reference and alternate sequences",
     )
     vcf_reader.formats["DM"] = vcf.parser._Format(
         "DM", "G", "Float", "Mahalanobis distance for each genotype",
@@ -416,7 +408,7 @@ def genotype_vcf(
     vcf_writer = vcf.Writer(output_file, vcf_reader, lineterminator="")
     for record in tqdm(vcf_reader, desc="Genotyping variants"):
         variant = Variant.from_pyvcf(record)
-        
+
         # Write sites-only and FORMAT columns (overwriting any original or potentially invalidated values)
         record.INFO.pop("AC", None)
         record.INFO.pop("AN", None)
@@ -451,17 +443,32 @@ def genotype_vcf(
                 continue
 
             assert len(indices) == 1, "Should only be only 'real data' entry"
+            indices = indices[0]
 
             # Construct VCF call entry
-            if gt_mode == "single" or (gt_mode == "hybrid" and variant.event_length >= args.hybrid_threshold):
-                call = pred_to_vcf(real_group, single_pred[indices[0]], single_prob[indices[0]])
+            if args.gt_mode == "single" or (
+                args.gt_mode == "hybrid"
+                and variant.event_length >= args.hybrid_threshold
+            ):
+                call = pred_to_vcf(
+                    real_group, single_pred[indices], single_prob[indices]
+                )
             else:
                 # Construct local classifier
                 sim_group = grouped_sim_data.get_group(group_vals)
 
-                # Drop rows with na, inf, etc. from training data
                 with pd.option_context("mode.use_inf_as_na", True):
-                    sim_group = sim_group.dropna(axis=0, subset=pervariant_features)
+                    # Drop any columns that are entirely NA
+                    sim_group = sim_group.dropna(axis=1, how="all")
+                    real_group = real_group.dropna(axis=1, how="all")
+
+                    # Update the available features
+                    avail_features = list(
+                        set(pervariant_features) & set(sim_group) & set(real_group)
+                    )
+
+                    # Then drop rows with na, inf, etc. from training data
+                    sim_group = sim_group.dropna(axis=0, subset=avail_features)
 
                 # Remove outliers from training data
                 with warnings.catch_warnings():
@@ -472,7 +479,7 @@ def genotype_vcf(
                     )
                     sim_group = (
                         sim_group.groupby(KLASS_COL)
-                        .apply(filter_by_zscore, pervariant_features, remove_z)
+                        .apply(filter_by_zscore, avail_features, remove_z)
                         .reset_index(drop=True)
                     )
 
@@ -480,32 +487,36 @@ def genotype_vcf(
                     "Classifying with %d observations after outlier filtering",
                     sim_group.shape[0],
                 )
-               
+
                 mahal_score = None
                 if args.dm2:
                     try:
                         _, _, mahal_score = single_mahalanobis(
-                            sim_group, real_group, features=MAHAL_FEATURES
+                            sim_group,
+                            real_group,
+                            features=list(set(avail_features) & set(MAHAL_FEATURES)),
                         )
                     except:
                         pass
-                    
+
                 # Classify variant and generate VCF genotype entry
                 try:
                     if args.classifier == "svm":
-                        pred, prob = svm_classify(sim_group, real_group, features=pervariant_features)
-                    elif args.classifier == "rf":
-                        pred, prob = rf_classify(sim_group, real_group, features=pervariant_features)
-                    else:
-                        raise NotImplementedError(
-                            f"Unknown classifier type: {args.classifier}"
+                        pred, prob = svm_classify(
+                            sim_group, real_group, features=avail_features
                         )
+                    elif args.classifier == "rf":
+                        pred, prob = rf_classify(
+                            sim_group, real_group, features=avail_features
+                        )
+                    call = pred_to_vcf(
+                        real_group, pred.item(0), prob[0,], dm2=mahal_score
+                    )
                 except ValueError as e:
                     logging.error(
                         "Genotyping error for %s: %s", variant_descriptor(record), e
                     )
-                    pred = None
-                call = pred_to_vcf(real_group, pred.item(0) if pred is not None else None, prob[0,], dm2=mahal_score)
+                    call = "./."
 
             output_file.write("\t" + call)
 

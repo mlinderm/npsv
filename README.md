@@ -32,7 +32,6 @@ python3 setup.py develop
 
 and run the genotyper on the available test data:
 ```
-mkdir -p tests/results
 npsv \
     -r /data/human_g1k_v37.fasta \
     --genome etc/human_g1k_v37.genome \
@@ -42,7 +41,7 @@ npsv \
     --stats-path tests/data/stats.json \
     -o tests/results \
     --prefix 1_1598414_1598580_DEL.result \
-    --n 5 --reuse --sim-ref --local -c rf
+    --n 5 --reuse --sim-ref --gt-mode variant -c rf
 ```
 
 The above command runs the genotyper on the original variants, to generate possible alternate representations, use the `propose` sub-command for `npsvg`, e.g.
@@ -69,7 +68,7 @@ npsv \
     --stats-path tests/data/stats.json \
     -o tests/results \
     --prefix 1_1598414_1598580_DEL.propose \
-    --n 5 --reuse --sim-ref --local -c rf --dm2
+    --n 5 --reuse --sim-ref --gt-mode variant -c rf --dm2
 ```
 
 and refine the expanded set by updated the genotypes of the original variant representations:
@@ -92,5 +91,5 @@ npsv \
     --stats-path tests/data/stats.json \
     -o tests/results \
     --prefix 1_931634_931634_INS.result \
-    --n 5 --reuse --sim-ref --local -c rf
+    --n 5 --reuse --sim-ref --gt-mode variant -c rf
 ```

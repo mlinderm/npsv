@@ -267,6 +267,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                 if synth_result.returncode != 0 or not os.path.exists(
                     synthetic_bam_path
                 ):
+                    print(synth_result.stderr)
                     raise RuntimeError(
                         f"Synthesis script failed to generate {synthetic_bam_path}"
                     )

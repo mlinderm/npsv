@@ -1,5 +1,5 @@
 import argparse, sys
-
+from .genotyper import GENOTYPING_MODES, CLASSIFIERS
 
 def add_random_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add arguments needed by random variant generator to parser
@@ -149,13 +149,16 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         "--classifier",
         help="Classifier(s) to use",
         type=str,
-        default="svm"
+        default="svm",
+        choices=CLASSIFIERS,
     )
     parser.add_argument(
-        "--local",
-        help="Exclusively build per-variant classifier",
-        action="store_true",
-        default=False,
+        "--gt-mode",
+        dest="gt_mode",
+        help="Genotyping mode",
+        type=str,
+        default="single",
+        choices=GENOTYPING_MODES,
     )
     parser.add_argument(
         "--downsample",
@@ -180,7 +183,8 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         dest="hybrid_classifier",
         help="Classifier(s) to use for 'single model' in hybrid classifier",
         type=str,
-        default="svm"
+        default="svm",
+        choices=CLASSIFIERS,
     )
     return parser
 
