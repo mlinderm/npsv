@@ -2,7 +2,7 @@ import collections, logging, sys
 import numpy as np
 from scipy.signal import peak_prominences, find_peaks
 from scipy.special import logsumexp
-from scipy.stats import chi2
+from scipy.stats import binom, chi2
 import vcf
 import pysam
 from .variant import Variant, variant_descriptor
@@ -10,7 +10,7 @@ from .genotyper import MAHAL_FEATURES
 
 PEAK_FINDING_FLANK = 5
 ORIGINAL_KEY = "ORIGINAL"
-VCF_FORMAT = "GT:PL:DM:CL:OGT:OPL:ODM"
+VCF_FORMAT = "GT:PL:DM:AD:CL:OGT:OPL:ODM:OAD"
 
 
 def propose_variants(args, input_vcf: str, output_file):
@@ -150,6 +150,17 @@ def dm2_to_prob(score, df=len(MAHAL_FEATURES)):
         prob = chi2.logsf(score, df)
         return np.exp(prob - logsumexp(prob))
 
+def ad_to_prob(ad):
+    ad = [int(reads) for reads in ad]
+    assert len(ad) == 2, "Unexpected number of alleles in call"
+    total_reads = sum(ad)
+    return [
+        binom.pmf(ad[1], total_reads, 0.05),
+        binom.pmf(ad[1], total_reads, 0.5),
+        binom.pmf(ad[1], total_reads, 0.95),
+    ]
+
+
 def refine_variants(args, input_vcf: str, output_file):
     """Identify the "best" representation for a variant
 
@@ -177,11 +188,14 @@ def refine_variants(args, input_vcf: str, output_file):
     vcf_reader.formats["ODM"] = vcf.parser._Format(
         "ODM", "G", "Float", "Original Mahalanobis distance for each genotype",
     )
+    vcf_reader.formats["OAD"] = vcf.parser._Format(
+        "OAD", "R", "Integer", "Original read depth for each allele",
+    )
     vcf_writer = vcf.Writer(args.output, vcf_reader)
 
     # TODO: Include data from original format
     AltCallData = collections.namedtuple(
-        "AltCallData", ["GT", "PL", "DM", "CL", "OGT", "OPL", "ODM"]
+        "AltCallData", ["GT", "PL", "DM", "AD", "CL", "OGT", "OPL", "ODM", "OAD"]
     )
 
     original_records = {}
@@ -209,47 +223,63 @@ def refine_variants(args, input_vcf: str, output_file):
 
             # Identify best alternate representation and genotype for each sample
             for i, call in enumerate(record.samples):
-                min_call = vcf.model._Call(
+                best_call = vcf.model._Call(
                     record,
                     call.sample,
                     AltCallData(
                         GT=call.data.GT,
                         PL=call.data.PL,
                         DM=call.data.DM,
+                        AD=call.data.AD,
                         CL=None,
                         OGT=None,
                         OPL=None,
                         ODM=None,
+                        OAD=None,
                     ),
                 )
-                if min_call.data.DM:
-                    min_dist = min(call.data.DM[1:])
+                if args.select == "dm2" and best_call.data.DM:
+                    min_dist = min(best_call.data.DM[1:])
+                elif args.select == "prob" and best_call.data.AD:
+                    max_prob = max(ad_to_prob(best_call.data.AD)[1:])
                 else:
-                    break
+                    record.samples[i] = best_call
+                    continue
 
                 # Identify other representations to see if we want to overwrite the genotype
+                # Update if:
+                # 1. Smallest DM^2 (largest GT prob) for alternate variant is for non-reference genotype, and
+                # 2. Alternate variant's smallest DM^2 (largest GT prob) is less (greater) than original's non-reference DM^2 (GT prob)
                 for alternate_record in alternate_records[id]:
                     alternate_call = alternate_record.samples[i]
-                    if not alternate_call.data.DM:
-                        continue
-
-                    min_alt_dist_idx = np.argmin(alternate_call.data.DM)
-                    min_alt_dist = alternate_call.data.DM[min_alt_dist_idx]
-                    # Update if:
-                    # 1. Smallest DM^2 for alternate variant is for non-reference genotype, and
-                    # 2. Alternate variant's smallest DM^2 is less than originals non-reference DM^2
-                    if min_alt_dist_idx != 0 and min_alt_dist < min_dist:
+                    if args.select == "dm2" and alternate_call.data.DM:
+                        min_alt_dist_idx = np.argmin(alternate_call.data.DM)
+                        min_alt_dist = alternate_call.data.DM[min_alt_dist_idx]
+                        if min_alt_dist_idx == 0 or min_alt_dist >= min_dist:
+                            continue
                         min_dist = min_alt_dist
-                        min_call_data = AltCallData(
-                            GT=alternate_call.data.GT,
-                            PL=alternate_call.data.PL,
-                            DM=alternate_call.data.DM,
-                            CL=variant_descriptor(alternate_record),
-                            OGT=call.data.GT,
-                            OPL=call.data.PL,
-                            ODM=call.data.DM,
-                        )
-                        min_call = vcf.model._Call(record, call.sample, min_call_data)
+                    elif args.select == "prob" and alternate_call.data.AD:
+                        alt_prob = ad_to_prob(alternate_call.data.AD)
+                        max_alt_prob_idx = np.argmax(alt_prob)
+                        max_alt_prob = alt_prob[max_alt_prob_idx]
+                        if max_alt_prob_idx == 0 or max_alt_prob <= max_prob:
+                            continue
+                        max_prob = max_alt_prob
+                    else:
+                        continue
+                    
+                    best_call_data = AltCallData(
+                        GT=alternate_call.data.GT,
+                        PL=alternate_call.data.PL,
+                        DM=alternate_call.data.DM,
+                        AD=alternate_call.data.AD,
+                        CL=variant_descriptor(alternate_record),
+                        OGT=call.data.GT,
+                        OPL=call.data.PL,
+                        ODM=call.data.DM,
+                        OAD=call.data.AD,
+                    )
+                    best_call = vcf.model._Call(record, call.sample, best_call_data)
 
-            record.samples[i] = min_call
+                record.samples[i] = best_call
             vcf_writer.write_record(record)
