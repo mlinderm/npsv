@@ -36,6 +36,7 @@ FEATURE_COL = Features.FEATURES
 KLASS_COL = "AC"
 SAMPLE_COL = "SAMPLE"
 TYPE_COL = "TYPE"
+AD_COL = ["REF_SPLIT", "ALT_SPLIT"]
 
 MAHAL_FEATURES = [
     "INSERT_LOWER",
@@ -94,7 +95,7 @@ VCF_COLUMN_HEADERS = [
     "INFO",
     "FORMAT",
 ]
-VCF_FORMAT = "GT:GR:PL:DM"
+VCF_FORMAT = "GT:GR:PL:DM:AD"
 AC_TO_GT = ("0/0", "0/1", "1/1")
 
 
@@ -118,7 +119,7 @@ def record_to_var_col(record: vcf.model._Record, sample):
     return (record.CHROM, record.POS, int(record.sv_end), record.var_subtype, sample)
 
 
-def pred_to_vcf(real_data, pred, prob=None, dm2=None) -> str:
+def pred_to_vcf(real_data, pred, prob=None, dm2=None, ad=None) -> str:
     """Prediction to VCF call field for sample"""
     assert real_data.shape[0] == 1, "Real data should have just one variant"
 
@@ -127,12 +128,13 @@ def pred_to_vcf(real_data, pred, prob=None, dm2=None) -> str:
         pl = -10.0 * np.log10(prob + 1e-11)
         pl = np.clip(np.round(pl - np.min(pl)).astype(int), 0, 99)
 
-    return "{gt}:{grr},{gra}:{pl}:{md}".format(
+    return "{gt}:{grr},{gra}:{pl}:{md}:{ad}".format(
         gt=AC_TO_GT[pred] if pred in (0, 1, 2) else "./.",
         grr=int(real_data["REF_SPLIT"].iloc[0]),
         gra=int(real_data["ALT_SPLIT"].iloc[0]),
         pl=",".join(map(str, pl)) if prob is not None else ".",
-        md=",".join(map(str, np.round(dm2, decimals=1))) if dm2 is not None else ".",
+        md=",".join(map(lambda x: str(round(x, 1)), dm2)) if dm2 is not None else ".",
+        ad=",".join(map(lambda x: str(round(x)), ad)) if ad is not None else ".",
     )
 
 
@@ -395,6 +397,9 @@ def genotype_vcf(
     vcf_reader.formats["PL"] = vcf.parser._Format(
         "PL", "G", "Integer", "Phred-scaled genotype likelihoods",
     )
+    vcf_reader.formats["AD"] = vcf.parser._Format(
+        "AD", "R", "Integer", "Read depth for each allele",
+    )
 
     # If original VCF is sites only...
     if len(vcf_reader._column_headers) < 9:
@@ -451,7 +456,7 @@ def genotype_vcf(
                 and variant.event_length >= args.hybrid_threshold
             ):
                 call = pred_to_vcf(
-                    real_group, single_pred[indices], single_prob[indices]
+                    real_group, single_pred[indices], single_prob[indices], ad=real_group[AD_COL].to_numpy().squeeze()
                 )
             else:
                 # Construct local classifier
@@ -510,7 +515,7 @@ def genotype_vcf(
                             sim_group, real_group, features=avail_features
                         )
                     call = pred_to_vcf(
-                        real_group, pred.item(0), prob[0,], dm2=mahal_score
+                        real_group, pred.item(0), prob[0,], dm2=mahal_score, ad=real_group[AD_COL].to_numpy().squeeze()
                     )
                 except ValueError as e:
                     logging.error(
