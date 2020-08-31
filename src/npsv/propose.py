@@ -51,7 +51,7 @@ def propose_variants(args, input_vcf: str, output_file):
     proposed_variants = {}
 
     for record in vcf_reader:
-        variant = Variant.from_pyvcf(record)
+        variant = Variant.from_pyvcf(record, args.reference)
         assert variant.id, "Variant proposal requires all variants to have a unique ID"
         vcf_writer.write_record(variant.record)
         
@@ -96,9 +96,7 @@ def propose_variants(args, input_vcf: str, output_file):
             repeat_end = int(repeat[2]) + PEAK_FINDING_FLANK
 
             # repeat is BED-file with half-open start
-            ref_seq = variant.reference_sequence(
-                args, region=f"{repeat[0]}:{repeat_start+1}-{repeat_end}"
-            )
+            ref_seq = variant.reference_sequence(f"{repeat[0]}:{repeat_start+1}-{repeat_end}")
 
             consensus_seq = repeat[5]
             scores = []

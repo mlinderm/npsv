@@ -278,11 +278,16 @@ def extract_features(
     gc_fraction, alignable_bases = variant.ref_gc_fraction
     if alignable_bases > 0:
         features.dhbfc = coverage / sample.gc_mean_coverage(gc_fraction)
+    else:
+        features.dhbfc = 1. if coverage > 0 else 0.
+
 
     # Flank normalized coverage
     mean_flank_coverage = (left_flank_coverage + right_flank_coverage) / 2
     if mean_flank_coverage > 0:
         features.dhffc = coverage / mean_flank_coverage
+    else:
+        features.dhffc = 1. if coverage > 0 else 0.
 
     return features
 
