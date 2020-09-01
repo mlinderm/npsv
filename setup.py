@@ -74,32 +74,26 @@ class CMakeBuild(build_ext):
         print()  # Add an empty line for cleaner output
 
 
-def file_replace(original_path, match, replace):
-    """Replace lines in files by applying regex
-
-    Args:
-        original_path (str): Path to file to update in place
-        match (str): Matching regex
-        replace (str): Replacement regex
-    """
+def file_find_or_append(original_path, match_pattern, append, sep=" "):
     # Adapted from SeqLib python package.
     with open(original_path) as original_file:
         original = original_file.readlines()
     with open(original_path, "w") as replaced_file:
         for line in original:
-            replaced_line = re.sub(match, replace, line)
-            replaced_file.write(replaced_line)
-
+            match = re.match(match_pattern, line)
+            if match:
+                print(line.rstrip(), *[flag for flag in append if flag not in match[0]], sep=sep, file=replaced_file)
+            else:
+                replaced_file.write(line)
 
 class SeqLibCMakeBuild(CMakeBuild):
     def run(self):
-        # To link into a shared library we need to add the -fPIC flag to SeqLib dependencies
+        # To link into a shared library we need to add the -fPIC and other flags to SeqLib dependencies
         # before building. Adapted from SeqLib python package.
-        cflags_line_re = r"^(CFLAGS\s*=.*)$"
         bwa_makefile_path = os.path.join(
             os.path.dirname(os.path.realpath(__file__)), "lib/seqlib", "bwa", "Makefile"
         )
-        file_replace(bwa_makefile_path, cflags_line_re, r"\1 -fPIC -Wno-unused-result")
+        file_find_or_append(bwa_makefile_path, r"^CFLAGS\s*=.*$", ["-fPIC","-Wno-unused-result"])
 
         super().run()
 
