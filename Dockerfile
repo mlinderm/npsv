@@ -45,6 +45,6 @@ ADD . /opt/npsv
 # Install npsv dependencies
 RUN pip3 install -r /opt/npsv/requirements.txt
 
-ENV PATH="/opt/npsv/scripts:${PATH}"
-
-ENTRYPOINT ["/usr/bin/python3"]
+# Install npsv
+WORKDIR /opt/npsv
+RUN python3 setup.py install
