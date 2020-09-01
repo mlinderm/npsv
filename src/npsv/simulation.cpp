@@ -1,4 +1,5 @@
 #include "simulation.hpp"
+#include "utility.hpp"
 
 #include <fstream>
 #include <random>
@@ -11,17 +12,6 @@
 #include "SeqLib/SeqLibUtils.h"
 #include "SeqLib/UnalignedSequence.h"
 
-namespace {
-void assert_throw(const bool cond, const std::string& text,
-                  const std::string& file, const int line) {
-  if (!cond) {
-    throw std::runtime_error(text + ". In file: " + file +
-                             " on line: " + std::to_string(line));
-  }
-}
-
-#define pyassert(cond, text) assert_throw(cond, text, __FILE__, __LINE__)
-}  // namespace
 
 namespace npsv {
 
@@ -58,7 +48,9 @@ constexpr bool IsGC(char base) {
 
 void FilterReadsGC(const std::string& fasta_path, const std::string& sam_path,
                    const std::string& fastq_path,
-                   const GCNormalizedCoverage& gc_map) {
+                   const std::vector<float>& gc_covg) {
+  pyassert(gc_covg.size() == 101, "GC vector should have entries for 0-100");
+  
   // Open the input SAM file and any output files
   sl::BamReader reader;
   reader.Open(sam_path);
@@ -108,7 +100,7 @@ void FilterReadsGC(const std::string& fasta_path, const std::string& sam_path,
     int gc_fraction = std::lround(static_cast<float>(gc * 100) / length);
 
     // Downsample reads based on GC normalized coverage
-    float gc_norm_covg = gc_map.at(gc_fraction);
+    float gc_norm_covg = gc_covg[gc_fraction];
     if (dist(engine) < gc_norm_covg)
       WriteFastQ(writer, read1, read2);
   }

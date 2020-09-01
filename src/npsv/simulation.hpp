@@ -8,11 +8,8 @@ namespace sl = SeqLib;
 
 namespace npsv {
 
-typedef std::map<int, float> GCNormalizedCoverage;
-
-void FilterReadsGC(const std::string& fasta_path, const std::string& sam_path, const std::string& fastq_path, const GCNormalizedCoverage& gc_map);
+void FilterReadsGC(const std::string& fasta_path, const std::string& sam_path, const std::string& fastq_path, const std::vector<float>& gc_covg);
 
 void FilterReadsGnomAD(const std::string& covg_path, const std::string& sam_path, const std::string& fastq_path, float max_covg);
-
 
 }

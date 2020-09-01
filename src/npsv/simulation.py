@@ -29,14 +29,11 @@ def filter_reads_gc(args, stats_path: str, fasta_path: str, in_sam: str, out_fas
     # Construct dictionary of GC normalized coverage
     library = sample.get_library(None)
     
-    gc_dict = {}
-    for gc in np.linspace(0.0, 1.0, 101):
-        gc_dict[np.round(gc * 100).astype(int)] = library.gc_normalized_coverage(gc)
-    max_normalized_gc = min(max(gc_dict.values()), args.max_gc_norm_covg)
-    for gc, covg in gc_dict.items():
-        gc_dict[gc] = covg / max_normalized_gc
+    gc_covg = np.fromiter((library.gc_normalized_coverage(gc) for gc in np.linspace(0.0, 1.0, 101)), dtype=float)
+    max_normalized_gc = min(np.max(gc_covg), args.max_gc_norm_covg)
+    gc_covg /= max_normalized_gc
 
-    npsva.filter_reads_gc(fasta_path, in_sam, out_fastq, gc_dict)
+    npsva.filter_reads_gc(fasta_path, in_sam, out_fastq, gc_covg)
 
 
 def gnomad_coverage_profile(args, gnomad_coverage:str, input_vcf: str, output_file):

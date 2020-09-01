@@ -162,8 +162,8 @@ do
     # This pipeline should be modified to make the simulated pipeline similar to the
     # the pipeline used with the actual data
     ALIGNEDBAM=$TMPDIR/aligned${s}.bam
-    #if [[ -z $STATSFILE ]]; then
-    if [[ -z $GNOMADCOVGFILE ]]; then
+    if [[ -z $STATSFILE ]]; then
+    #if [[ -z $GNOMADCOVGFILE ]]; then
         bwa mem -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
             -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
             "$SHAREDREF" \
@@ -173,8 +173,9 @@ do
         sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
     else
         # Downsample reads based on GC fraction
-        #npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam"  | \
-        npsvg gnomadcovg --covg-path "$COVGPROFILE" -i "${READS_PREFIX}.sam"  | \
+        
+        #npsvg gnomadcovg --covg-path "$COVGPROFILE" -i "${READS_PREFIX}.sam"  | \
+        npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam"  | \
         bwa mem -p -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
             -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
             "$SHAREDREF" \
