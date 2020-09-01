@@ -95,7 +95,7 @@ VCF_COLUMN_HEADERS = [
     "INFO",
     "FORMAT",
 ]
-VCF_FORMAT = "GT:GR:PL:DM:AD"
+VCF_FORMAT = "GT:AD:PL:DM"
 AC_TO_GT = ("0/0", "0/1", "1/1")
 
 
@@ -128,13 +128,11 @@ def pred_to_vcf(real_data, pred, prob=None, dm2=None, ad=None) -> str:
         pl = -10.0 * np.log10(prob + 1e-11)
         pl = np.clip(np.round(pl - np.min(pl)).astype(int), 0, 99)
 
-    return "{gt}:{grr},{gra}:{pl}:{md}:{ad}".format(
+    return "{gt}:{ad}:{pl}:{md}".format(
         gt=AC_TO_GT[pred] if pred in (0, 1, 2) else "./.",
-        grr=int(real_data["REF_SPLIT"].iloc[0]),
-        gra=int(real_data["ALT_SPLIT"].iloc[0]),
+        ad=",".join(map(lambda x: str(round(x)), real_data[AD_COL].to_numpy().squeeze())),
         pl=",".join(map(str, pl)) if prob is not None else ".",
         md=",".join(map(lambda x: str(round(x, 1)), dm2)) if dm2 is not None else ".",
-        ad=",".join(map(lambda x: str(round(x)), ad)) if ad is not None else ".",
     )
 
 
@@ -388,9 +386,6 @@ def genotype_vcf(
         ]
     vcf_reader.metadata["npsv_dm2"] = [f"mahal({','.join(MAHAL_FEATURES)})"]
     vcf_reader.formats["GT"] = vcf.parser._Format("GT", 1, "String", "Genotype")
-    vcf_reader.formats["GR"] = vcf.parser._Format(
-        "GR", "R", "Integer", "Reads mapped to reference and alternate sequences",
-    )
     vcf_reader.formats["DM"] = vcf.parser._Format(
         "DM", "G", "Float", "Mahalanobis distance for each genotype",
     )
