@@ -6,7 +6,7 @@ FILE_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 class GenotypingCornerCasesTestSuite(unittest.TestCase):
     def test_empty_inputs(self):
-        args = argparse.Namespace(local=False, filter_bed=None)
+        args = argparse.Namespace(gt_mode="single", filter_bed=None)
         out_file = io.StringIO()
         genotype_vcf(
             args,

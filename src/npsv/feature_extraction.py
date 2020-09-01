@@ -123,7 +123,7 @@ def header(out_file=sys.stdout, ac=None):
     print(*actual_features, sep="\t", file=out_file)
 
 
-def bases_in_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11):
+def coverage_over_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11):
     """Compute coverage over 1-indexed, closed region"""
     depth_result = pysam.depth(  # pylint: disable=no-member
         "-Q", str(min_mapq),
@@ -132,12 +132,15 @@ def bases_in_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11)
         "-r", region,
         input_bam,
     )
-    if len(depth_result) > 0:
+    # start, end are 0-indexed half-open coordinates
+    _, start, end = pysam.libcutils.parse_region(region=region)
+    region_length = end - start
+    if len(depth_result) > 0 and region_length > 0:
         depths = np.loadtxt(io.StringIO(depth_result), dtype=int, usecols=2)
-        _, start, end = pysam.libcutils.parse_region(region=region)
-        return np.sum(depths) / (end - start)
+        total_coverage = np.sum(depths)
+        return (total_coverage / region_length, total_coverage, region_length)
     else:
-        return 0.
+        return (0., 0., region_length)
 
 def count_realigned_reads(
     args,
@@ -256,13 +259,13 @@ def extract_features(
     if not variant.is_deletion:
         return features
 
-    coverage = bases_in_region(input_bam, variant.region_string(), min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor)
-    left_flank_coverage = bases_in_region(
+    coverage, _, _ = coverage_over_region(input_bam, variant.region_string(), min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor)
+    _, left_flank_bases, left_flank_length = coverage_over_region(
         input_bam,
         variant.left_flank_region_string(args.rel_coverage_flank),
         min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
     )
-    right_flank_coverage = bases_in_region(
+    _, right_flank_bases, right_flank_length = coverage_over_region(
         input_bam,
         variant.right_flank_region_string(args.rel_coverage_flank),
         min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
@@ -281,11 +284,11 @@ def extract_features(
     else:
         features.dhbfc = 1. if coverage > 0 else 0.
 
-
     # Flank normalized coverage
-    mean_flank_coverage = (left_flank_coverage + right_flank_coverage) / 2
-    if mean_flank_coverage > 0:
-        features.dhffc = coverage / mean_flank_coverage
+    total_flank_bases = left_flank_bases + right_flank_bases
+    total_flank_length = left_flank_length + right_flank_length
+    if total_flank_bases > 0 and total_flank_length > 0:
+        features.dhffc = coverage / (total_flank_bases / total_flank_length)
     else:
         features.dhffc = 1. if coverage > 0 else 0.
 

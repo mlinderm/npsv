@@ -89,3 +89,7 @@ class DELFeaturesTest(unittest.TestCase):
             )
             features.print_features(sys.stdout)
 
+class PySAMFeatures(unittest.TestCase):
+    def test_region_parsing(self):
+        # parse_region converts region to 0-indexed half-open coordinates
+        self.assertEqual(pysam.libcutils.parse_region(region="1:1-1"), ('1', 0, 1))

@@ -10,6 +10,7 @@ from npsv.feature_extraction import (
     extract,
     extract_features,
     header,
+    coverage_over_region,
 )
 from npsv.random_variants import random_variants, CHROM_REGEX_SEX
 from npsv.genotyper import genotype_vcf
@@ -224,7 +225,23 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     if check_if_bwa_index_loaded(args.reference):
         shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
 
-    hap_coverage = sample.chrom_mean_coverage(variant.chrom) / 2
+    # Determine coverage from flanking regions around event
+    _, left_flank_bases, left_flank_length = coverage_over_region(
+        args.bam,
+        variant.left_flank_region_string(args.flank),
+        min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
+    )
+    _, right_flank_bases, right_flank_length = coverage_over_region(
+        args.bam,
+        variant.right_flank_region_string(args.flank),
+        min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
+    )
+    total_flank_bases = left_flank_bases + right_flank_bases
+    total_flank_length = left_flank_length + right_flank_length
+    if total_flank_bases > 0 and total_flank_length > 0:
+        hap_coverage = (total_flank_bases / total_flank_length) / 2
+    else:
+        hap_coverage = sample.chrom_mean_coverage(variant.chrom) / 2
     
     stats_file_arg = ""
     gnomad_covg_file_arg = ""
