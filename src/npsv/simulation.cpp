@@ -92,12 +92,20 @@ void FilterReadsGC(const std::string& fasta_path, const std::string& sam_path,
     pyassert(reader.GetNextRecord(read2), "Missing second read in pair");
 
     // Compute GC fraction for insert
-    auto start = std::min(read1.Position(), read2.Position());
-    auto length = std::abs(read1.InsertSize());
-
     auto& cuml_gc_count = contigs[read1.ChrID()];
+    
+    // Due to insertions it is possible for the fragment to extend beyond the legnth of the sequence, so
+    // clamp at the sequence length
+    auto start = std::min(read1.Position(), read2.Position());
+    pyassert(start < cuml_gc_count.size(), "Fragment start coordinate outside of sequence");
+    
+    auto length = std::abs(read1.InsertSize());
+    if (start + length >= cuml_gc_count.size())
+      length = cuml_gc_count.size() - start - 1;
+
     int gc = cuml_gc_count[start + length] - cuml_gc_count[start];
     int gc_fraction = std::lround(static_cast<float>(gc * 100) / length);
+    pyassert(gc_fraction >= 0 && gc_fraction <= 100, "GC fraction outside of expected range");
 
     // Downsample reads based on GC normalized coverage
     float gc_norm_covg = gc_covg[gc_fraction];

@@ -257,6 +257,13 @@ def main():
         default=sys.stdout,
         help="Output file",
     )
+    parser_refine.add_argument(
+        "--select",
+        help="Selection method during variant refinement",
+        type=str,
+        default="dm2",
+        choices=["dm2", "prob"],
+    )
 
     # Generate FASTA with consensus sequence
     parser_consensus = subparsers.add_parser(

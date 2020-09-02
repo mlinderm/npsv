@@ -162,24 +162,32 @@ do
     # This pipeline should be modified to make the simulated pipeline similar to the
     # the pipeline used with the actual data
     ALIGNEDBAM=$TMPDIR/aligned${s}.bam
-    if [[ -z $STATSFILE ]]; then
-    #if [[ -z $GNOMADCOVGFILE ]]; then
-        bwa mem -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
-            -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
-            "$SHAREDREF" \
-            "${READS_PREFIX}1.fq" "${READS_PREFIX}2.fq" | \
-        samblaster -q -M --addMateTags | \
-        samtools view -S -u  - | \
-        sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
-    else
-        # Downsample reads based on GC fraction
-        
-        #npsvg gnomadcovg --covg-path "$COVGPROFILE" -i "${READS_PREFIX}.sam"  | \
-        npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam"  | \
+    
+    if [[ -n $GNOMADCOVGFILE ]]; then
+        # Downsample reads based on GnomAD data
+        npsvg gnomadcovg --covg-path "$COVGPROFILE" -i "${READS_PREFIX}.sam" | \
         bwa mem -p -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
             -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
             "$SHAREDREF" \
             /dev/stdin | \
+        samblaster -q -M --addMateTags | \
+        samtools view -S -u  - | \
+        sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
+    elif [[ -n $STATSFILE ]]; then
+        # Downsample reads based on GC fraction
+        npsvg normcovg --fasta-path "$FASTA" --stats-path "$STATSFILE" -i "${READS_PREFIX}.sam" | \
+        bwa mem -p -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
+            -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
+            "$SHAREDREF" \
+            /dev/stdin | \
+        samblaster -q -M --addMateTags | \
+        samtools view -S -u  - | \
+        sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
+    else
+        bwa mem -c 250 -M -v 1 -I "${FRAGMEAN},${FRAGSD}" \
+            -R "@RG\tID:synth${s}\tSM:${SM}\tLB:synth${s}\tPL:illumina\tPU:ART" \
+            "$SHAREDREF" \
+            "${READS_PREFIX}1.fq" "${READS_PREFIX}2.fq" | \
         samblaster -q -M --addMateTags | \
         samtools view -S -u  - | \
         sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
