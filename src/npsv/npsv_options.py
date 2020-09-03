@@ -215,7 +215,7 @@ def add_propose_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
 
 def add_simulation_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
-        "--max_gc_norm_covg",
+        "--max-gc-norm-covg",
         dest="max_gc_norm_covg",
         help="Max GC normalized coverage",
         type=float,
