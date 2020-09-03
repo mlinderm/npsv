@@ -57,12 +57,16 @@ class AlignedFragment {
   const sl::BamRecord& FirstRead() const { return first_; }
   const sl::BamRecord& SecondRead() const { return second_; }
 
-  int32_t RightPos1() const;
+  int32_t LeftPos1() const;
   int32_t LeftPos2() const;
+
+  int32_t RightPos1() const;
+  int32_t RightPos2() const;
 
   void SetRead(const sl::BamRecord& read);
   
   bool Straddles(const sl::GenomicRegion& left_region, const sl::GenomicRegion& right_region, int min_overlap) const;
+  bool StrictStraddles(const sl::GenomicRegion& left_region, const sl::GenomicRegion& right_region, int min_overlap) const;
   double ProbMapQ() const;
 
   friend std::ostream& operator<<(std::ostream&, const AlignedFragment&);
@@ -280,8 +284,9 @@ class RealignedFragments {
 namespace test {
   bool TestAlignmentOverlap(const std::string& sam_path, const std::string& breakpoint, bool count_straddle);
 
-  std::vector<double> TestScoreAlignment(const std::string& ref_seq,
-                                       const std::string& aln_path);
+  std::vector<double> TestScoreAlignment(const std::string& ref_seq, const std::string& aln_path);
+
+  bool TestStraddle(const std::string& sam_path, const std::string& left_region, const std::string& right_region, int min_overlap, bool strict);
 };
 
 

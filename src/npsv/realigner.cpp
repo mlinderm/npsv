@@ -95,9 +95,9 @@ int AlignedFragment::InsertSize() const {
   return left_->FullInsertSize();
 }
 
-int32_t AlignedFragment::RightPos1() const {
+int32_t AlignedFragment::LeftPos1() const {
   // Convert to 1-indexed
-  return left_->MatePosition() + 1;
+  return left_->Position() + 1;
 }
 
 int32_t AlignedFragment::LeftPos2() const {
@@ -105,6 +105,15 @@ int32_t AlignedFragment::LeftPos2() const {
   return left_->PositionEnd() + 1;
 }
 
+int32_t AlignedFragment::RightPos1() const {
+  // Convert to 1-indexed
+  return left_->MatePosition() + 1;
+}
+
+int32_t AlignedFragment::RightPos2() const {
+  // Convert to 1-indexed
+  return left_->PositionEndMate() + 1;
+}
 
 void AlignedFragment::SetRead(const sl::BamRecord& read) {
   if (read.FirstFlag() && first_.isEmpty()) {
@@ -119,12 +128,19 @@ void AlignedFragment::SetRead(const sl::BamRecord& read) {
 }
 
 bool AlignedFragment::Straddles(const sl::GenomicRegion& left_region,
-                                  const sl::GenomicRegion& right_region,
-                                  int min_overlap) const {
-  // This is an expansive definition of straddling, a more strict definition, could require the start
-  // coordinates for the reads to be the respective regions
+                                const sl::GenomicRegion& right_region, int min_overlap) const {
+  // This is an expansive definition of straddling that only requires minimum overlap of the region
+  // (as opposed to the two reads starting in the corresponding regions).
   return ReadOverlapRegion(*left_, left_region) >= min_overlap &&
          MateOverlapRegion(*left_, right_region) >= min_overlap;
+}
+
+bool AlignedFragment::StrictStraddles(const sl::GenomicRegion& left_region,
+                                      const sl::GenomicRegion& right_region,
+                                      int min_overlap) const {
+  // A stricter definition of straddling that requires the reads to start in the respective regions
+  return LeftPos1() >= left_region.pos1 && LeftPos1() <= (left_region.pos2 - min_overlap + 1) &&
+         RightPos1() >= right_region.pos1 && RightPos1() <= (right_region.pos2 - min_overlap + 1);
 }
 
 double AlignedFragment::ProbMapQ() const {
@@ -500,14 +516,14 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
   }
 
   int insert_count = 0, insert_upper = 0, insert_lower = 0;
-  double ref_weighted_count = 0., alt_weighted_count = 0., ref_conc_count = 0., alt_conc_count = 0.;
+  double ref_count = 0., alt_count = 0., ref_weighted_count = 0., alt_weighted_count = 0., ref_conc_count = 0., alt_conc_count = 0.;
 
   for (auto& named_fragment : fragments_) {
     auto& fragment = named_fragment.second;
     if (!fragment.IsProperPair()) continue;
 
     // Read straddles the entire event
-    if (fragment.Straddles(left_region, right_region, min_overlap)) {
+    if (fragment.StrictStraddles(left_region, right_region, min_overlap)) {
       insert_count += 1;
       
       int ref_insert_size;
@@ -515,6 +531,11 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
       std::tie(ref_prob, alt_prob, ref_insert_size) = FragmentInsertProbabilities(fragment, alt_size_delta);
 
       if (ref_prob + alt_prob > 0.) {
+        if (alt_prob > ref_prob)
+          alt_count += 1;
+        else
+          ref_count += 1;
+        
         double p_alt = alt_prob / (ref_prob + alt_prob);
         ref_weighted_count += 1 - p_alt;
         alt_weighted_count += p_alt;
@@ -540,15 +561,16 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
 
     if (!left_event_region.IsEmpty() && !right_event_region.IsEmpty()) {
       // Read straddles one of the breakpoints (shouldn't straddle both). This is more restrictive than SVTyper
-      // will count fragments where both reads start outside the event, but one read is anchored in the event.
-      bool ref_straddle_left = fragment.Straddles(left_region, left_event_region, min_overlap);
-      bool ref_straddle_right = fragment.Straddles(right_event_region, right_region, min_overlap);
+      // which will count fragments where both reads start outside the event, but one read is anchored in the event.
+      bool ref_straddle_left = fragment.StrictStraddles(left_region, left_event_region, min_overlap);
+      bool ref_straddle_right = fragment.StrictStraddles(right_event_region, right_region, min_overlap);
       
-      ref_straddle_left = ref_straddle_left && left_breakpoint_region.pos2 <= fragment.RightPos1() && fragment.RightPos1() <= right_breakpoint_region.pos1;
-      ref_straddle_right = ref_straddle_right && left_breakpoint_region.pos2 <= fragment.LeftPos2() && fragment.LeftPos2() <= right_breakpoint_region.pos1;
+      // ref_straddle_left = ref_straddle_left && left_breakpoint_region.pos2 <= fragment.RightPos1() && fragment.RightPos1() <= right_breakpoint_region.pos1;
+      // ref_straddle_right = ref_straddle_right && left_breakpoint_region.pos2 <= fragment.LeftPos2() && fragment.LeftPos2() <= right_breakpoint_region.pos1;
       
       if (ref_straddle_left || ref_straddle_right) {
         pyassert(ref_straddle_left ^ ref_straddle_right, "Reads straddling both breakpoints should have been filtered out");
+        ref_count += 0.5;
         ref_weighted_count += 0.5;  // p_alt is by definition 0
         
         double p_conc = FragmentProbConcordance(fragment, alt_size_delta);
@@ -564,6 +586,8 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
   results["insert_count"] = insert_count;
   results["insert_lower"] = insert_lower;
   results["insert_upper"] = insert_upper;
+  results["ref_count"] = ref_count;
+  results["alt_count"] = alt_count;
   results["ref_weighted_count"] = ref_weighted_count;
   results["alt_weighted_count"] = alt_weighted_count;
   results["ref_conc_count"] = ref_conc_count;
@@ -745,6 +769,24 @@ std::vector<double> TestScoreAlignment(const std::string& ref_seq,
 
   reader.Close();
   return scores;
+}
+
+bool TestStraddle(const std::string& sam_path, const std::string& left_region,
+                  const std::string& right_region, int min_overlap, bool strict) {
+  sl::BamReader reader;
+  reader.Open(sam_path);
+
+  sl::BamRecord read1, read2;
+  pyassert(reader.GetNextRecord(read1), "Missing first read");
+  pyassert(reader.GetNextRecord(read2), "Missing second read");
+  reader.Close();
+
+  AlignedFragment fragment(read1);
+  fragment.SetRead(read2);
+
+  sl::GenomicRegion left(left_region, reader.Header()), right(right_region, reader.Header());
+  return strict ? fragment.StrictStraddles(left, right, min_overlap)
+                : fragment.Straddles(left, right, min_overlap);
 }
 
 }  // namespace test

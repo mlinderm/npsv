@@ -159,6 +159,40 @@ class NPSVARealignedFragmentsTest(unittest.TestCase):
         self.args = argparse.Namespace(flank=3000)
         self.input_fasta = os.path.join(FILE_DIR, "1_2073761_2073846_DEL.synth.fasta")
 
+    def test_straddle_implementation(self):
+        try:
+            # Create SAM file with a single read
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".sam"
+            ) as sam_file:
+                # fmt: off
+                print("@HD", "VN:1.3", "SO:coordinate", sep="\t", file=sam_file)
+                print("@SQ", "SN:ref", "LN:6070", sep="\t", file=sam_file)
+                print("@RG", "ID:synth1", "LB:synth1", "PL:illumina", "PU:ART", "SM:HG002", sep="\t", file=sam_file)
+                print(
+                    "ref-82", "99", "ref", "91", "99", "148=", "=", "679", "736",
+                    "GATGAGCGAGAGCCGCCAGACCCACGTGACGCTGCACGACATCGACCCTCAGGCCTTGGACCAGCTGGTGCAGTTTGCCTACACGGCTGAGATTGTGGTGGGCGAGGGCAATGTGCAGGTGAGGGCTCCCTCACCCGGATCCCGGTGT",
+                    "CCCGGGGGGGGGG=CGJJGCJJJJJJJJJGJJJGCGGJJJJJJGJJGJCG8GGJGJJJGGCGCJGCCJCCGGG81GGCGGGGCCCGGCGGGGGGGC=GCCGGCGGCCGGGCCGGGC8CGGGCCC=GGCGGGGGGGGGGGCGGGGGGCG",
+                    sep="\t", file=sam_file,
+                )
+                print(
+                    "ref-82", "147", "ref", "679", "99", "148=", "=", "91", "-736",
+                    "CCTGACTCTGCTCGGCCCCTCCCAGTATGAACACTCAGCCCCCACCTGCTAACCCTCCCTCCTAGGCATCTTCAGGGCTCCCTGGGTCCACAGGACCCTCCCCAGATCTCAGGTCTGAGGACCCCCACTCCCAGGTTCTGGAACTGGT",
+                    "CCGGCGGGGCCCGCC=GGGG8CG8GGGC8CCGGGGGGGGGGGGGCCC(JGG1CGGGGCGGCCGC8GGGCGGGGGCCGGGJCGGG(CJ=JGJJGJJGGJJGGJJGGGJGJJGJJGJJGJGCCCGJGJJGJJJJJGJGGCG1GGGGGCCC",
+                    sep="\t", file=sam_file,
+                )
+                # fmt: on
+
+            # Strict straddler
+            self.assertTrue(npsva.test_straddle(sam_file.name, "ref:1-101", "ref:588-688", 10, True))
+            self.assertFalse(npsva.test_straddle(sam_file.name, "ref:1-101", "ref:817-917", 10, True))
+
+            # Not-strict straddler
+            self.assertTrue(npsva.test_straddle(sam_file.name, "ref:1-101", "ref:817-917", 10, False))
+
+        finally:
+            os.remove(sam_file.name)
+
     def test_pipeline_straddle_counting(self):
         for record in vcf.Reader(self.vcf_file):
             self.assertTrue(record.is_sv)

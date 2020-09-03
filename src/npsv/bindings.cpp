@@ -20,4 +20,5 @@ PYBIND11_MODULE(npsva, m) {
   
   m.def("test_score_alignment", &npsv::test::TestScoreAlignment, "Test interface for scoring alignment");
   m.def("test_alignment_overlap", &npsv::test::TestAlignmentOverlap, "Test interface for testing overlaps");
+  m.def("test_straddle", &npsv::test::TestStraddle, "Test interface for testing if read pair straddles regions");
 }
