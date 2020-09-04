@@ -36,18 +36,16 @@ FEATURE_COL = Features.FEATURES
 KLASS_COL = "AC"
 SAMPLE_COL = "SAMPLE"
 TYPE_COL = "TYPE"
-AD_COL = ["REF_SPLIT", "ALT_SPLIT"]
+AD_COL = ["REF_READ", "ALT_READ"]
 
 MAHAL_FEATURES = [
     "INSERT_LOWER",
     "INSERT_UPPER",
-    # "DHFC",
-    # "DHBFC",
     "DHFFC",
     "REF_READ_REL",
     "ALT_READ_REL",
-    "REF_SPAN_REL",
-    "ALT_SPAN_REL",
+    "REF_WEIGHTED_SPAN_REL",
+    "ALT_WEIGHTED_SPAN_REL",
 ]
 
 
@@ -56,8 +54,8 @@ CLASSIFIER_FEATURES = {
         "SVLEN",
         "REF_READ_REL",
         "ALT_READ_REL",
-        "REF_SPAN_REL",
-        "ALT_SPAN_REL",
+        "REF_WEIGHTED_SPAN_REL",
+        "ALT_WEIGHTED_SPAN_REL",
         "INSERT_LOWER",
         "INSERT_UPPER",
         "DHFC",
@@ -66,23 +64,22 @@ CLASSIFIER_FEATURES = {
         "PROB_HOMREF",
         "PROB_HET",
         "PROB_HOMALT",
+        "CLIP_PRIMARY",
     ],
     "rf": [
         "SVLEN",
         "ALT_READ_REL",
-        "ALT_SPAN_REL",
+        "ALT_WEIGHTED_SPAN_REL",
         "INSERT_LOWER",
         "INSERT_UPPER",
         "DHFFC",
         "PROB_HOMREF",
         "PROB_HET",
         "PROB_HOMALT",
+        "CLIP_PRIMARY",
     ],
 }
 
-C_RANGE = np.logspace(-2, 10, 13)
-GAMMA_RANGE = np.logspace(-9, 3, 13)
-PARAM_GRID = dict(gamma=GAMMA_RANGE, C=C_RANGE)
 
 VCF_COLUMN_HEADERS = [
     "CHROM",
@@ -130,7 +127,7 @@ def pred_to_vcf(real_data, pred, prob=None, dm2=None, ad=None) -> str:
 
     return "{gt}:{ad}:{pl}:{md}".format(
         gt=AC_TO_GT[pred] if pred in (0, 1, 2) else "./.",
-        ad=",".join(map(lambda x: str(round(x)), real_data[AD_COL].to_numpy().squeeze())),
+        ad=",".join(map(str, real_data[AD_COL].to_numpy().squeeze().astype(int))),
         pl=",".join(map(str, pl)) if prob is not None else ".",
         md=",".join(map(lambda x: str(round(x, 1)), dm2)) if dm2 is not None else ".",
     )
@@ -205,8 +202,8 @@ def add_derived_features(data):
     # https://www.sciencedirect.com/science/article/pii/S0092867418316337#sec4
 
     # Round since we can get fraction read counts when there are multiple breakpoints
-    ref_reads = np.ceil(data["REF_SPLIT"])
-    alt_reads = np.ceil(data["ALT_SPLIT"])
+    ref_reads = np.ceil(data["REF_READ"])
+    alt_reads = np.ceil(data["ALT_READ"])
     total_reads = ref_reads + alt_reads
     data["REF_READ_REL"] = np.where(total_reads == 0, 0, ref_reads / total_reads)
     data["ALT_READ_REL"] = np.where(total_reads == 0, 0, alt_reads / total_reads)
@@ -215,9 +212,9 @@ def add_derived_features(data):
     data["PROB_HET"] = binom.pmf(alt_reads, total_reads, 0.5)
     data["PROB_HOMALT"] = binom.pmf(alt_reads, total_reads, 0.95)
 
-    total_span = data["REF_SPAN"] + data["ALT_SPAN"]
-    data["REF_SPAN_REL"] = np.where(total_span == 0, 0, data["REF_SPAN"] / total_span)
-    data["ALT_SPAN_REL"] = np.where(total_span == 0, 0, data["ALT_SPAN"] / total_span)
+    total_span = data["REF_WEIGHTED_SPAN"] + data["ALT_WEIGHTED_SPAN"]
+    data["REF_WEIGHTED_SPAN_REL"] = np.where(total_span == 0, 0, data["REF_WEIGHTED_SPAN"] / total_span)
+    data["ALT_WEIGHTED_SPAN_REL"] = np.where(total_span == 0, 0, data["ALT_WEIGHTED_SPAN"] / total_span)
     return data
 
 

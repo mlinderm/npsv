@@ -1,4 +1,5 @@
 import argparse, io, json, logging, os, re, subprocess, sys, tempfile
+from collections import defaultdict
 import vcf
 import pysam
 import pysam.bcftools as bcftools
@@ -54,35 +55,32 @@ def count_alleles_with_svviz2(variant, args, input_bam):
 
 class Features(object):
     FEATURES = [
-        "REF_SPAN",
-        "ALT_SPAN",
-        "REF_SPLIT",
-        "ALT_SPLIT",
-        "COVG",
+        "REF_READ",
+        "ALT_READ",
+        "REF_WEIGHTED_SPAN",
+        "ALT_WEIGHTED_SPAN",
         "INSERT_LOWER",
         "INSERT_UPPER",
+        "CLIP_PRIMARY",
+        "COVERAGE",
         "DHFC",
         "DHBFC",
         "DHFFC",
     ]
     FEATURE_COLS = ["#CHROM", "START", "END", "TYPE", "SAMPLE", "SVLEN", *FEATURES]
-
     MISSING_DATA = "."
 
     def __init__(self, variant: Variant, sample: Sample):
-        self.variant = variant
-        self.sample = sample
+        self.__dict__['variant'] = variant
+        self.__dict__['sample'] = sample
+        self.__dict__['features'] = defaultdict(lambda: Features.MISSING_DATA)
 
-    @property
-    def read_counts(self):
-        return (self.ref_reads, self.alt_reads)
-
-    @read_counts.setter
-    def read_counts(self, value):
-        (self.ref_reads, self.alt_reads) = value
+    def __setattr__(self, name, value):
+        if name not in Features.FEATURES:
+            raise ValueError("Unknown feature: %s", name)
+        self.features[name] = value
 
     def print_features(self, file, force_variant=None, ac=None):
-        # TODO: Rationalize the column and attribute names
         print_variant = self.variant if force_variant is None else force_variant
         print(
             print_variant.chrom,
@@ -91,36 +89,28 @@ class Features(object):
             print_variant.subtype,
             self.sample.name,
             print_variant.event_length,
-            getattr(self, "ref_span", Features.MISSING_DATA),
-            getattr(self, "alt_span", Features.MISSING_DATA),
-            getattr(self, "ref_reads", Features.MISSING_DATA),
-            getattr(self, "alt_reads", Features.MISSING_DATA),
-            getattr(self, "coverage", Features.MISSING_DATA),
-            getattr(self, "insert_lower", Features.MISSING_DATA),
-            getattr(self, "insert_upper", Features.MISSING_DATA),
-            getattr(self, "dhfc", Features.MISSING_DATA),
-            getattr(self, "dhbfc", Features.MISSING_DATA),
-            getattr(self, "dhffc", Features.MISSING_DATA),
             sep="\t",
             end="",
             file=file,
         )
+        for feature in Features.FEATURES:
+            file.write(f"\t{self.features[feature]}")
         if ac is not None:
             file.write(f"\t{ac}")
         file.write("\n")
 
+    @staticmethod
+    def header(out_file=sys.stdout, ac=None):
+        """Generate header for SV features file
 
-def header(out_file=sys.stdout, ac=None):
-    """Generate header for SV features file
-
-    Args:
-        out_file (file object, optional): Output file object. Defaults to sys.stdout.
-        ac (int, optional): Not None to include AC in header. Defaults to None.
-    """
-    actual_features = Features.FEATURE_COLS[:]
-    if ac is not None:
-        actual_features.append("AC")
-    print(*actual_features, sep="\t", file=out_file)
+        Args:
+            out_file (file object, optional): Output file object. Defaults to sys.stdout.
+            ac (int, optional): Not None to include AC in header. Defaults to None.
+        """
+        if ac is not None:
+            print(*Features.FEATURE_COLS, "AC", sep="\t", file=out_file)
+        else:
+            print(*Features.FEATURE_COLS, sep="\t", file=out_file)
 
 
 def coverage_over_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11):
@@ -223,7 +213,6 @@ def extract_features(
         fragments.gather_reads(variant.region_string(flank=pair_flank))        
 
     # Allele Count Evidence
-
     ref_count, alt_count, *_ = count_realigned_reads(
         args,
         fragments,
@@ -232,7 +221,8 @@ def extract_features(
         alt_contig=alt_contig,
         count_straddle=args.count_straddle,
     )
-    features.read_counts = (ref_count, alt_count)
+    features.REF_READ = ref_count
+    features.ALT_READ = alt_count
 
     # Read Pair Evidence
     left_breakpoint = variant.left_flank_region_string(left_flank=1, right_flank=1)
@@ -243,15 +233,35 @@ def extract_features(
     )
 
     # TODO: Incorporate 'concordance' count features
-    features.ref_span = pair_results["ref_weighted_count"]
-    features.alt_span = pair_results["alt_weighted_count"]
+    features.REF_WEIGHTED_SPAN = pair_results["ref_weighted_count"]
+    features.ALT_WEIGHTED_SPAN = pair_results["alt_weighted_count"]
     insert_count = pair_results["insert_count"]
     if insert_count > 0:
-        features.insert_lower = pair_results["insert_lower"] / insert_count
-        features.insert_upper = pair_results["insert_upper"] / insert_count
+        features.INSERT_LOWER = pair_results["insert_lower"] / insert_count
+        features.INSERT_UPPER = pair_results["insert_upper"] / insert_count
     else:
-        features.insert_lower = 0
-        features.insert_upper = 0
+        features.INSERT_LOWER = 0
+        features.INSERT_UPPER = 0
+
+    # Clipped Read Evidence
+    if variant.is_deletion:
+        # For deletion we are interested in clipped reads within the event
+        left_clip_results = fragments.count_pipeline_clipped_reads(left_breakpoint, args.min_clip)
+        clip = left_clip_results["right"]
+        clip_total = left_clip_results["total"]
+        
+        right_clip_results = fragments.count_pipeline_clipped_reads(right_breakpoint, args.min_clip)
+        clip += right_clip_results["left"]
+        clip_total += right_clip_results["total"]
+    elif variant.is_insertion:
+        # TODO: Handle complex variants
+        # For insertion we are interested in clipped reads on either side of breakpoint
+        clip_results = fragments.count_pipeline_clipped_reads(left_breakpoint, args.min_clip)
+        clip = clip_results["left"] + clip_results["right"] + clip_results["both"]
+        clip_total = left_clip_results["total"]
+
+    features.CLIP_PRIMARY = clip / clip_total if clip_total > 0 else 0.
+
 
     # Coverage Evidence
 
@@ -274,23 +284,23 @@ def extract_features(
     # Normalized coverage features adapted from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6479422/
 
     # Chromosomal normalized coverage
-    features.coverage = coverage
-    features.dhfc = coverage / sample.chrom_mean_coverage(variant.chrom)
+    features.COVERAGE = coverage
+    features.DHFC = coverage / sample.chrom_mean_coverage(variant.chrom)
 
     # GC normalized coverage
     gc_fraction, alignable_bases = variant.ref_gc_fraction
     if alignable_bases > 0:
-        features.dhbfc = coverage / sample.gc_mean_coverage(gc_fraction)
+        features.DHBFC = coverage / sample.gc_mean_coverage(gc_fraction)
     else:
-        features.dhbfc = 1. if coverage > 0 else 0.
+        features.DHBFC = 1. if coverage > 0 else 0.
 
     # Flank normalized coverage
     total_flank_bases = left_flank_bases + right_flank_bases
     total_flank_length = left_flank_length + right_flank_length
     if total_flank_bases > 0 and total_flank_length > 0:
-        features.dhffc = coverage / (total_flank_bases / total_flank_length)
+        features.DHFFC = coverage / (total_flank_bases / total_flank_length)
     else:
-        features.dhffc = 1. if coverage > 0 else 0.
+        features.DHFCC = 1. if coverage > 0 else 0.
 
     return features
 

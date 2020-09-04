@@ -22,7 +22,7 @@ class DELFeaturesTest(unittest.TestCase):
 1 2073761 . CAGCAGCCGAAGCGCCTCCTTTCAATCCAGGGTCCACACATCCAGCAGCCGAAGCGCCCTCCTTTCAATCCAGGGTCCAGGCATCT C . PASS SVTYPE=DEL;END=2073846;SVLEN=-85
 """
         )
-        self.args = argparse.Namespace(flank=3000, min_anchor=11, default_ci=10, min_mapq=40, min_baseq=15, rel_coverage_flank=1000, count_straddle=True)
+        self.args = argparse.Namespace(flank=3000, min_anchor=11, default_ci=10, min_mapq=40, min_baseq=15, rel_coverage_flank=1000, count_straddle=True, min_clip=4)
         self.input_fasta = os.path.join(FILE_DIR, "1_2073761_2073846_DEL.synth.fasta")
         self.input_bam = os.path.join(FILE_DIR, "1_2073761_2073846_DEL_2.bam")
         self.sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), self.input_bam)

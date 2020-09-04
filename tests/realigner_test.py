@@ -220,6 +220,50 @@ class NPSVARealignedFragmentsTest(unittest.TestCase):
             self.assertAlmostEqual(pair_results["insert_lower"], 0.0, places=2)
             self.assertAlmostEqual(pair_results["insert_upper"] / pair_results["insert_count"], 0.16, places=2)
 
+    def test_pipeline_clip_counting(self):
+        try:
+            # Create SAM file with a single read
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".sam"
+            ) as sam_file:
+                # fmt: off
+                print("@HD", "VN:1.3", "SO:coordinate", sep="\t", file=sam_file)
+                print("@SQ", "SN:1", "LN:6070", sep="\t", file=sam_file)
+                print("@RG", "ID:synth1", "LB:synth1", "PL:illumina", "PU:ART", "SM:HG002", sep="\t", file=sam_file)
+                print(
+                    "ref-82", "99", "1", "91", "99", "148=", "=", "679", "732",
+                    "GATGAGCGAGAGCCGCCAGACCCACGTGACGCTGCACGACATCGACCCTCAGGCCTTGGACCAGCTGGTGCAGTTTGCCTACACGGCTGAGATTGTGGTGGGCGAGGGCAATGTGCAGGTGAGGGCTCCCTCACCCGGATCCCGGTGT",
+                    "CCCGGGGGGGGGG=CGJJGCJJJJJJJJJGJJJGCGGJJJJJJGJJGJCG8GGJGJJJGGCGCJGCCJCCGGG81GGCGGGGCCCGGCGGGGGGGC=GCCGGCGGCCGGGCCGGGC8CGGGCCC=GGCGGGGGGGGGGGCGGGGGGCG",
+                    sep="\t", file=sam_file,
+                )
+                print(
+                    "ref-82", "147", "1", "679", "99", "4S140=4H", "=", "91", "-732",
+                    "CCTGACTCTGCTCGGCCCCTCCCAGTATGAACACTCAGCCCCCACCTGCTAACCCTCCCTCCTAGGCATCTTCAGGGCTCCCTGGGTCCACAGGACCCTCCCCAGATCTCAGGTCTGAGGACCCCCACTCCCAGGTTCTGGAAC",
+                    "CCGGCGGGGCCCGCC=GGGG8CG8GGGC8CCGGGGGGGGGGGGGCCC(JGG1CGGGGCGGCCGC8GGGCGGGGGCCGGGJCGGG(CJ=JGJJGJJGGJJGGJJGGGJGJJGJJGJJGJGCCCGJGJJGJJJJJGJGGCG1GGGG",
+                    sep="\t", file=sam_file,
+                )
+                # fmt: on
+
+            sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), sam_file.name)
+            fragments = npsva.RealignedFragments(
+                self.input_fasta,
+                sample.mean_insert_size,
+                sample.std_insert_size,
+                sample.insert_size_density().as_dict(),
+                sam_file.name,
+            )
+            fragments.gather_reads("1:1-1000")
+            self.assertEqual(fragments.size(), 1)
+            
+            clip_results = fragments.count_pipeline_clipped_reads("1:100-101", 4)
+            self.assertDictEqual(clip_results, {"left": 0, "right": 0, "both": 0, "total": 1})
+
+            clip_results = fragments.count_pipeline_clipped_reads("1:700-701", 4)
+            self.assertDictEqual(clip_results, {"left": 0, "right": 0, "both": 1, "total": 1})
+
+        finally:
+            os.remove(sam_file.name)
+
     def test_alignment_scoring(self):
         try:
             # Create SAM file with a single read

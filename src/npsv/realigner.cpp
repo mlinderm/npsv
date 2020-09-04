@@ -153,6 +153,63 @@ double AlignedFragment::ProbMapQ() const {
   return result;
 }
 
+namespace {
+  std::tuple<int, int> CountLeftAndRightClippedBases(const sl::BamRecord& read) {
+    sl::Cigar cigar = read.GetCigar();
+    // Count clips on and left and right edge of read
+    int left_clipped_bases = 0;
+    for (int i=0; i<cigar.size(); i++) {
+      const auto& field = cigar[i];
+      if (field.Type() == 'S' || field.Type() == 'H')
+        left_clipped_bases += field.Length();
+      else
+        break;
+    }
+
+    int right_clipped_bases = 0;
+    for (int i=cigar.size()-1; i>=0; i--) {
+      const auto& field = cigar[i];
+      if (field.Type() == 'S' || field.Type() == 'H')
+        right_clipped_bases += field.Length();
+      else
+        break;
+    }
+    return std::make_tuple(left_clipped_bases, right_clipped_bases);
+  }
+}
+
+
+std::tuple<int, int, int, int> AlignedFragment::ClipCount(const sl::GenomicRegion& breakpoint, int min_clip) const {
+  int total_reads = 0, left_clipped_reads = 0, right_clipped_reads = 0, both_clipped_reads = 0;
+  
+  if (HasFirst() && ReadOverlapRegion(first_, breakpoint) > 0) {
+    total_reads += 1;
+    int left_clipped_bases, right_clipped_bases;
+    std::tie(left_clipped_bases, right_clipped_bases) = CountLeftAndRightClippedBases(first_);
+    bool left_clipped = left_clipped_bases >= min_clip, right_clipped = right_clipped_bases >= min_clip;
+    if (left_clipped && right_clipped)
+      both_clipped_reads += 1;
+    else if (left_clipped)
+      left_clipped_reads += 1;
+    else if (right_clipped)
+      right_clipped_reads += 1;
+  }
+  
+  if (HasSecond() && ReadOverlapRegion(second_, breakpoint) > 0) {
+    total_reads += 1;
+    int left_clipped_bases, right_clipped_bases;
+    std::tie(left_clipped_bases, right_clipped_bases) = CountLeftAndRightClippedBases(second_);
+    bool left_clipped = left_clipped_bases >= min_clip, right_clipped = right_clipped_bases >= min_clip;
+    if (left_clipped && right_clipped)
+      both_clipped_reads += 1;
+    else if (left_clipped)
+      left_clipped_reads += 1;
+    else if (right_clipped)
+      right_clipped_reads += 1;
+  }
+  
+  return std::make_tuple(total_reads, left_clipped_reads, right_clipped_reads, both_clipped_reads);
+}
 
 std::ostream& operator<<(std::ostream& os, const AlignedFragment& fragment) {
   return (os << fragment.first_ << std::endl << fragment.second_);
@@ -599,6 +656,30 @@ namespace {
   sl::GenomicRegion BreakpointToGenomicRegion(const std::string& region, const sl::BamHeader& header) {
       return (region.empty()) ? sl::GenomicRegion() : sl::GenomicRegion(region, header);
   }
+}
+
+std::map<std::string, int> RealignedFragments::CountPipelineClippedReads(const std::string& breakpoint, int min_clip) const {
+  sl::GenomicRegion breakpoint_region = BreakpointToGenomicRegion(breakpoint, reader_.Header());
+  
+  int total_reads = 0, left_clipped_reads = 0, right_clipped_reads = 0, both_clipped_reads = 0;
+  for (auto& named_fragment : fragments_) {
+    auto& fragment = named_fragment.second;
+
+    // Check if read overlaps breakpoint and count clips
+    int total, left_clipped, right_clipped, both_clipped;
+    std::tie(total, left_clipped, right_clipped, both_clipped) = fragment.ClipCount(breakpoint_region, min_clip);
+    total_reads += total;
+    left_clipped_reads += left_clipped;
+    right_clipped_reads += right_clipped;
+    both_clipped_reads += both_clipped;
+  }
+
+  std::map<std::string, int> results;
+  results["total"] = total_reads;
+  results["left"] = left_clipped_reads;
+  results["right"] = right_clipped_reads;
+  results["both"] = both_clipped_reads;
+  return results;
 }
 
 std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::string> > > RealignedFragments::CountRealignedReads(const BreakpointList& breakpoint_list, py::kwargs kwargs) {

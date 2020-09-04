@@ -13,6 +13,7 @@ PYBIND11_MODULE(npsva, m) {
       .def("size", &npsv::RealignedFragments::size)
       .def("gather_reads", &npsv::RealignedFragments::GatherReads, py::arg("region"), py::arg("max_reads")=std::numeric_limits<int>::max())
       .def("count_pipeline_straddlers", &npsv::RealignedFragments::CountPipelineStraddlers)
+      .def("count_pipeline_clipped_reads", &npsv::RealignedFragments::CountPipelineClippedReads)
       .def("count_realigned_reads", &npsv::RealignedFragments::CountRealignedReads);
 
   m.def("filter_reads_gc", &npsv::FilterReadsGC, "Filter reads based on GC normalized coverage");

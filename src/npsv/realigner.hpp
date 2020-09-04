@@ -69,6 +69,8 @@ class AlignedFragment {
   bool StrictStraddles(const sl::GenomicRegion& left_region, const sl::GenomicRegion& right_region, int min_overlap) const;
   double ProbMapQ() const;
 
+  std::tuple<int, int, int, int> ClipCount(const sl::GenomicRegion& breakpoint, int min_clip) const;
+
   friend std::ostream& operator<<(std::ostream&, const AlignedFragment&);
  private:
   sl::BamRecord first_;
@@ -259,6 +261,8 @@ class RealignedFragments {
       const std::string& left_breakpoint, const std::string& right_breakpoint,
       int flank, int alt_size_delta, double z_threshold = 1.5,
       int min_overlap = 1) const;
+
+  std::map<std::string, int> CountPipelineClippedReads(const std::string& breakpoint, int min_clip) const;
 
   std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::string> > > CountRealignedReads(const BreakpointList& breakpoints, py::kwargs kwargs);
 

@@ -89,6 +89,13 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         action="store_false",
         default=True,
     )
+    parser.add_argument(
+        "--min-clip",
+        dest="min_clip",
+        default=4,
+        type=int,
+        help="Min length to be considered a clipped reads",
+    )
     return parser
 
 

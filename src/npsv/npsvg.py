@@ -20,9 +20,9 @@ class HeaderAction(argparse.Action):
         )
 
     def __call__(self, parser, namespace, values, option_string=None):
-        from feature_extraction import header
+        from feature_extraction import Features
 
-        header(sys.stdout)
+        Features.header(sys.stdout)
         parser.exit()
 
 

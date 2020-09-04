@@ -9,8 +9,8 @@ from npsv.variant import Variant, variant_descriptor, write_record_to_indexed_vc
 from npsv.feature_extraction import (
     extract,
     extract_features,
-    header,
     coverage_over_region,
+    Features
 )
 from npsv.random_variants import random_variants, CHROM_REGEX_SEX
 from npsv.genotyper import genotype_vcf
@@ -434,9 +434,9 @@ def main():
     logging.info("Extracting features (to %s and %s)", sim_tsv_path, real_tsv_path)
 
     with open(sim_tsv_path, "w") as file:
-        header(out_file=file, ac=True)
+        Features.header(out_file=file, ac=True)
     with open(real_tsv_path, "w") as file:
-        header(out_file=file, ac=True)
+        Features.header(out_file=file, ac=False)
 
     with open(sim_tsv_path, "ab") as sim_sink, open(real_tsv_path, "ab") as real_sink:
         for sim_result, real_result in tqdm(
