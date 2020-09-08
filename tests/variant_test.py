@@ -373,3 +373,24 @@ class SimpleINSVariantTestSuite(unittest.TestCase):
             self.assertEqual(lines[1], "AG")
             self.assertEqual(lines[2], ">1_931634_931635_alt")
             self.assertEqual(lines[3], "AGGGAGGGCAGAAAGGACCCCCACGTGAGGGGGCACCCCACATCTGGGGCCACAGGATGCAGGGTGGGGAGGGCAGAAAGGCCCCCCCGCGGGAAGGGGCACCCCACATCTGGGCCACAGGATGCAGGGTGGGGAGGGCAGAAAGGCCCCCCCGCGGGAAGGGGCACCCCACATCTGGGGCCACAGGATGCAGGGTGG")
+
+class SymbolicINSVariantTestSuite(unittest.TestCase):
+    def test_manta_vcf(self):
+        vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
+##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##INFO=<ID=SVINSLEN,Number=.,Type=Integer,Description="Length of insertion">
+##INFO=<ID=SVINSSEQ,Number=.,Type=String,Description="Sequence of insertion">
+##ALT=<ID=INS,Description="Insertion">
+##contig=<ID=3,length=198022430>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+3       72386664        MantaINS:1:5470:5470:0:0:0      G       <INS>   999     MaxDepth        END=72386664;SVTYPE=INS;SVLEN=10;CIPOS=0,9;CIEND=0,9;SVINSLEN=10;SVINSSEQ=GTGTGTGTGC
+"""
+        )
+        record = next(vcf.Reader(vcf_file))
+        variant = Variant.from_pyvcf(record, None)
+        self.assertEqual(variant._alt_seq(flank=1,ref_seq="GT"), "GGTGTGTGTGCT")

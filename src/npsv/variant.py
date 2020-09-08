@@ -375,7 +375,12 @@ class InsertionVariant(Variant):
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
-            raise ValueError("Unsupported allele type")
+            # Work with insertions as encoded by Manta
+            if "SVINSSEQ" in self.record.INFO:
+                allele = self.record.INFO["SVINSSEQ"][0]
+                return ref_seq[: flank] + str(allele) + ref_seq[flank :]
+            else:
+                raise ValueError("Unsupported allele type")
         elif isinstance(allele, vcf.model._Substitution):
             return ref_seq[: flank - 1] + str(allele) + ref_seq[flank :]
         else:
