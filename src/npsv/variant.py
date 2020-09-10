@@ -24,12 +24,25 @@ def overwrite_reader_samples(vcf_reader: vcf.Reader, samples):
 
 
 class Variant(object):
-    def __init__(self, record, reference):
+    def __init__(self, record, reference, padding=1):
         self.record = record
         # Make sure every variant has a unique ID
         if self.record.ID is None:
             self.record.ID = variant_descriptor(record)
         self.reference = reference
+        self.padding = padding
+
+        # Update padding for complex sequence-resolved variants
+        ref_allele = record.REF
+        alt_allele = record.ALT[0]
+        if isinstance(alt_allele, vcf.model._Substitution):
+            alt_allele = str(alt_allele)
+            if len(alt_allele) > 1 and len(ref_allele) > 1:
+                padding_string = os.path.commonprefix([ref_allele, alt_allele])
+                self.padding = len(padding_string)
+            else:
+                assert ref_allele[0] == alt_allele[0], "Missing padding base in the VCF"
+        assert self.padding <= 1, "More than expected number of padding bases, VCF is not normalized"       
 
     @property
     def chrom(self):
@@ -90,10 +103,6 @@ class Variant(object):
     def is_duplication(self):
         return False
 
-    @property
-    def is_complex(self):
-        return False
-
     def get_ci(self, key: str, default_ci: int):
         """Get SV confidence interval or default for VCF record
         
@@ -116,26 +125,26 @@ class Variant(object):
         """Return 1-indexed fully closed region describing inside the variant, e.g. the deleted region"""
         # In correctly formatted VCF, POS is first base of event when zero-indexed, while
         # END is 1-indexed closed end or 0-indexed half-open end
-        return f"{self.chrom}:{self.pos+1-flank}-{self.end+flank}"
+        return f"{self.chrom}:{self.pos+self.padding-flank}-{self.end+flank}"
 
     def left_flank_region_string(self, left_flank, right_flank=0):
         """Return 1-indexed fully closed region"""
-        return f"{self.chrom}:{self.pos+1-left_flank}-{self.pos+right_flank}"
+        return f"{self.chrom}:{self.pos+self.padding-left_flank}-{self.pos+right_flank}"
     
     def right_flank_region_string(self, right_flank, left_flank=0):
         """Return 1-indexed fully closed region"""
-        return f"{self.chrom}:{self.end+1-left_flank}-{self.end+right_flank}"
+        return f"{self.chrom}:{self.end+self.padding-left_flank}-{self.end+right_flank}"
 
     def ref_breakpoints(self, flank, contig=None):
         if contig is None:
             contig = self.chrom
-        event_end = flank + self.ref_length - 1 # ref_length includes padding base
+        event_end = flank + self.ref_length - self.padding # ref_length includes padding base
         return (f"{contig}:{flank}-{flank + 1}", f"{contig}:{event_end}-{event_end+1}" if event_end > flank else None)
 
     def alt_breakpoints(self, flank, contig=None):
         if contig is None:
             contig = self.chrom
-        event_end = flank + self.alt_length - 1 # alt_length includes padding base
+        event_end = flank + self.alt_length - self.padding # alt_length includes padding base
         return (f"{contig}:{flank}-{flank + 1}", f"{contig}:{event_end}-{event_end + 1}" if event_end > flank else None)
 
     def reference_sequence(self, region=None, flank=0):
@@ -211,6 +220,8 @@ class Variant(object):
     def from_pyvcf(cls, record, reference=None):
         if not record.is_sv:
             return None
+        if len(record.ALT) != 1:
+            return None
 
         kind = record.var_subtype
         if kind.startswith("DEL"):
@@ -239,7 +250,6 @@ class DeletionVariant(Variant):
 
     @property
     def alt_length(self):
-        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
             # Symbolic allele
@@ -308,7 +318,7 @@ class DeletionVariant(Variant):
         if isinstance(allele, vcf.model._SV):
             return ref_seq[: flank] + ref_seq[-flank :]
         elif isinstance(allele, vcf.model._Substitution):
-            return ref_seq[: flank - 1] + str(allele) + ref_seq[-flank :]
+            return ref_seq[: flank - self.padding] + str(allele) + ref_seq[-flank :]
         else:
             raise ValueError("Unsupported allele type")
 
@@ -339,8 +349,8 @@ class DeletionVariant(Variant):
             alt_covg = ref_covg[: args.flank] + ref_covg[-args.flank :]
         elif isinstance(allele, vcf.model._Substitution):
             alt_covg = (
-                ref_covg[: args.flank - 1]
-                + ref_covg[args.flank - 1] * len(allele)
+                ref_covg[: args.flank - self.padding]
+                + ref_covg[args.flank - self.padding] * len(allele)
                 + ref_covg[-args.flank :]
             )
         else:
@@ -376,7 +386,6 @@ class InsertionVariant(Variant):
 
     @property
     def alt_length(self):
-        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
             # Symbolic allele
@@ -400,7 +409,7 @@ class InsertionVariant(Variant):
             else:
                 raise ValueError("Unsupported allele type")
         elif isinstance(allele, vcf.model._Substitution):
-            return ref_seq[: flank - 1] + str(allele) + ref_seq[flank :]
+            return ref_seq[: flank - self.padding] + str(allele) + ref_seq[flank :]
         else:
             raise ValueError("Unsupported allele type")
 
@@ -420,17 +429,16 @@ class DuplicationVariant(Variant):
     def ref_breakpoints(self, flank, contig=None):
         if contig is None:
             contig = self.chrom
-        duplication_junction = flank + self.ref_length - 1 # ref_length includes padding base
+        duplication_junction = flank + self.ref_length - self.padding # ref_length includes padding base
         return (f"{contig}:{flank}-{flank + 1}", f"{contig}:{duplication_junction}-{duplication_junction + 1}")
 
     def alt_breakpoints(self, flank, contig=None):
         if contig is None:
             contig = self.chrom
-        duplication_junction = flank + self.ref_length - 1 # ref_length includes padding base
+        duplication_junction = flank + self.ref_length - self.padding # ref_length includes padding base
         return (f"{contig}:{duplication_junction}-{duplication_junction + 1}", None)
 
     def _alt_seq(self, flank, ref_seq):
-        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
         allele = self.record.ALT[0]
         if isinstance(allele, vcf.model._SV):
             event_length = self.event_length

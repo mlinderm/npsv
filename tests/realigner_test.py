@@ -86,7 +86,7 @@ class DELBreakpoints(unittest.TestCase):
 ##ALT=<ID=DEL,Description="Deletion">
 ##contig=<ID=1,length=249250621>
 #CHROM POS ID REF ALT QUAL FILTER INFO
-1	100	.	ACCGGTT	ACGT	.	PASS	SVTYPE=DEL;END=106;SVLEN=-3
+1	100	.	AACGGTT	ACGT	.	PASS	SVTYPE=DEL;END=106;SVLEN=-3
 """
         )
 
