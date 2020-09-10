@@ -87,6 +87,10 @@ class Variant(object):
         return False
 
     @property
+    def is_duplication(self):
+        return False
+
+    @property
     def is_complex(self):
         return False
 
@@ -121,6 +125,18 @@ class Variant(object):
     def right_flank_region_string(self, right_flank, left_flank=0):
         """Return 1-indexed fully closed region"""
         return f"{self.chrom}:{self.end+1-left_flank}-{self.end+right_flank}"
+
+    def ref_breakpoints(self, flank, contig=None):
+        if contig is None:
+            contig = self.chrom
+        event_end = flank + self.ref_length - 1 # ref_length includes padding base
+        return (f"{contig}:{flank}-{flank + 1}", f"{contig}:{event_end}-{event_end+1}" if event_end > flank else None)
+
+    def alt_breakpoints(self, flank, contig=None):
+        if contig is None:
+            contig = self.chrom
+        event_end = flank + self.alt_length - 1 # alt_length includes padding base
+        return (f"{contig}:{flank}-{flank + 1}", f"{contig}:{event_end}-{event_end + 1}" if event_end > flank else None)
 
     def reference_sequence(self, region=None, flank=0):
         try:
@@ -201,6 +217,8 @@ class Variant(object):
             return DeletionVariant(record, reference)
         elif kind.startswith("INS"):
             return InsertionVariant(record, reference)
+        elif kind.startswith("DUP"):
+            return DuplicationVariant(record, reference)
 
 
 class DeletionVariant(Variant):
@@ -356,11 +374,6 @@ class InsertionVariant(Variant):
     def ref_length(self):
         return 1
 
-    def region_string(self, flank=0):
-        if flank == 0:
-            raise ValueError("Can't represent interior region of an insertion")
-        return super().region_string(flank=flank)  
-
     @property
     def alt_length(self):
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
@@ -370,6 +383,11 @@ class InsertionVariant(Variant):
             return self.event_length + 1
         else:
             return len(allele)
+
+    def region_string(self, flank=0):
+        if flank == 0:
+            raise ValueError("Can't represent interior region of an insertion")
+        return super().region_string(flank=flank)  
 
     def _alt_seq(self, flank, ref_seq):
         assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
@@ -383,6 +401,41 @@ class InsertionVariant(Variant):
                 raise ValueError("Unsupported allele type")
         elif isinstance(allele, vcf.model._Substitution):
             return ref_seq[: flank - 1] + str(allele) + ref_seq[flank :]
+        else:
+            raise ValueError("Unsupported allele type")
+
+
+class DuplicationVariant(Variant):
+    def __init__(self, record, reference):
+        Variant.__init__(self, record, reference)
+
+    @property
+    def is_duplication(self):
+        return True
+
+    @property
+    def ref_length(self):
+        return self.end - self.pos + 1
+
+    def ref_breakpoints(self, flank, contig=None):
+        if contig is None:
+            contig = self.chrom
+        duplication_junction = flank + self.ref_length - 1 # ref_length includes padding base
+        return (f"{contig}:{flank}-{flank + 1}", f"{contig}:{duplication_junction}-{duplication_junction + 1}")
+
+    def alt_breakpoints(self, flank, contig=None):
+        if contig is None:
+            contig = self.chrom
+        duplication_junction = flank + self.ref_length - 1 # ref_length includes padding base
+        return (f"{contig}:{duplication_junction}-{duplication_junction + 1}", None)
+
+    def _alt_seq(self, flank, ref_seq):
+        assert len(self.record.ALT) == 1, "Multiple alternates are not supported"
+        allele = self.record.ALT[0]
+        if isinstance(allele, vcf.model._SV):
+            event_length = self.event_length
+            assert 2*flank + event_length == len(ref_seq), "Inconsistent length for reference sequence"
+            return ref_seq[: flank] + 2 * ref_seq[flank:flank+event_length] + ref_seq[-flank :] 
         else:
             raise ValueError("Unsupported allele type")
 

@@ -142,25 +142,19 @@ def count_realigned_reads(
     **kwargs,
 ):
 
-    # Reference and alternate breakpoint spans in synthetic fasta (1-indexed)
-    ref_length = variant.ref_length
-    alt_length = variant.alt_length
-
     # 1-indexed coordinates
-    rl_breakpoint = f"{ref_contig}:{args.flank}-{args.flank+1}"
-    rr_breakpoint = f"{ref_contig}:{args.flank + ref_length - 1}-{args.flank + ref_length}" if ref_length > 1 else ""
-    al_breakpoint = f"{alt_contig}:{args.flank}-{args.flank+1}"
-    ar_breakpoint = f"{alt_contig}:{args.flank + alt_length - 1}-{args.flank + alt_length}" if alt_length > 1 else ""
+    rl_breakpoint, rr_breakpoint = variant.ref_breakpoints(args.flank, contig=ref_contig)
+    al_breakpoint, ar_breakpoint = variant.alt_breakpoints(args.flank, contig=alt_contig)
 
     counts, read_names = fragments.count_realigned_reads(
-        [(rl_breakpoint, rr_breakpoint, al_breakpoint, ar_breakpoint)],
+        [(rl_breakpoint, rr_breakpoint or "", al_breakpoint, ar_breakpoint or "")],
         count_straddle=count_straddle,
         **kwargs,
     )
 
     # If multiple breakpoints, average counts
-    ref_reads = (counts["rl"] + counts["rr"]) / (1 if ref_length == 1 else 2)
-    alt_reads = (counts["al"] + counts["ar"]) / (1 if alt_length == 1 else 2)
+    ref_reads = (counts["rl"] + counts["rr"]) / (1 if rr_breakpoint is None else 2)
+    alt_reads = (counts["al"] + counts["ar"]) / (1 if ar_breakpoint is None else 2)
 
     return ref_reads, alt_reads, read_names
 
@@ -245,7 +239,7 @@ def extract_features(
 
     # Clipped Read Evidence
     if variant.is_deletion:
-        # For deletion we are interested in clipped reads within the event
+        # For deletions we are interested in clipped reads within the event
         left_clip_results = fragments.count_pipeline_clipped_reads(left_breakpoint, args.min_clip)
         clip = left_clip_results["right"]
         clip_total = left_clip_results["total"]
@@ -255,10 +249,19 @@ def extract_features(
         clip_total += right_clip_results["total"]
     elif variant.is_insertion:
         # TODO: Handle complex variants
-        # For insertion we are interested in clipped reads on either side of breakpoint
+        # For insertions we are interested in clipped reads on either side of breakpoint
         clip_results = fragments.count_pipeline_clipped_reads(left_breakpoint, args.min_clip)
         clip = clip_results["left"] + clip_results["right"] + clip_results["both"]
+        clip_total = clip_results["total"]
+    elif variant.is_duplication:
+        # For duplication we are interested in clipped reads outside the event
+        left_clip_results = fragments.count_pipeline_clipped_reads(left_breakpoint, args.min_clip)
+        clip = left_clip_results["left"]
         clip_total = left_clip_results["total"]
+        
+        right_clip_results = fragments.count_pipeline_clipped_reads(right_breakpoint, args.min_clip)
+        clip += right_clip_results["right"]
+        clip_total += right_clip_results["total"]
 
     features.CLIP_PRIMARY = clip / clip_total if clip_total > 0 else 0.
 

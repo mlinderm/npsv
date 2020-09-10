@@ -148,8 +148,8 @@ def random_variant(
     elif variant.is_insertion:
         insertion_seq = variant._alt_seq(flank=0, ref_seq="")
         
-        # insertion_seq should include the padding base
-        assert len(insertion_seq) > variant.event_length
+        # insertion_seq may include the padding base
+        assert len(insertion_seq) >= variant.event_length
         random_insertion(insertion_seq[-variant.event_length:], ref_reader, contigs, gaps, output_file, n=n, flank=flank)
 
 
