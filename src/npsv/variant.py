@@ -1,4 +1,4 @@
-import os, subprocess, tempfile, textwrap
+import logging, os, subprocess, tempfile, textwrap
 from backports.cached_property import cached_property
 import vcf
 import pysam
@@ -36,13 +36,10 @@ class Variant(object):
         ref_allele = record.REF
         alt_allele = record.ALT[0]
         if isinstance(alt_allele, vcf.model._Substitution):
-            alt_allele = str(alt_allele)
-            if len(alt_allele) > 1 and len(ref_allele) > 1:
-                padding_string = os.path.commonprefix([ref_allele, alt_allele])
-                self.padding = len(padding_string)
-            else:
-                assert ref_allele[0] == alt_allele[0], "Missing padding base in the VCF"
-        assert self.padding <= 1, "More than expected number of padding bases, VCF is not normalized"       
+            padding_string = os.path.commonprefix([ref_allele, str(alt_allele)])
+            self.padding = len(padding_string)
+        if self.padding > 1:
+            logging.warning("%s has more than expected number of padding bases, if VCF normalized?", self.record.ID)    
 
     @property
     def chrom(self):
@@ -129,11 +126,11 @@ class Variant(object):
 
     def left_flank_region_string(self, left_flank, right_flank=0):
         """Return 1-indexed fully closed region"""
-        return f"{self.chrom}:{self.pos+self.padding-left_flank}-{self.pos+right_flank}"
+        return f"{self.chrom}:{self.pos+self.padding-left_flank}-{self.pos+self.padding-1+right_flank}"
     
     def right_flank_region_string(self, right_flank, left_flank=0):
         """Return 1-indexed fully closed region"""
-        return f"{self.chrom}:{self.end+self.padding-left_flank}-{self.end+right_flank}"
+        return f"{self.chrom}:{self.end+1-left_flank}-{self.end+right_flank}"
 
     def ref_breakpoints(self, flank, contig=None):
         if contig is None:
@@ -318,7 +315,7 @@ class DeletionVariant(Variant):
         if isinstance(allele, vcf.model._SV):
             return ref_seq[: flank] + ref_seq[-flank :]
         elif isinstance(allele, vcf.model._Substitution):
-            return ref_seq[: flank - self.padding] + str(allele) + ref_seq[-flank :]
+            return ref_seq[: flank] + str(allele)[self.padding:] + ref_seq[-flank :]
         else:
             raise ValueError("Unsupported allele type")
 

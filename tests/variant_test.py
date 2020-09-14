@@ -301,6 +301,9 @@ class ComplexDELVariantTestSuite(unittest.TestCase):
         record = next(vcf.Reader(self.vcf_file))
         variant = Variant.from_pyvcf(record, None)
         
+        self.assertEqual(variant.left_flank_region_string(left_flank=1, right_flank=1), "4:20473845-20473846")
+        self.assertEqual(variant.right_flank_region_string(left_flank=1, right_flank=1), "4:20474269-20474270")
+
         self.assertEqual(variant.ref_breakpoints(self.args.flank), ("4:1-2", "4:425-426"))
         self.assertEqual(variant.alt_breakpoints(self.args.flank), ("4:1-2", "4:235-236"))
 
@@ -331,6 +334,128 @@ class ComplexDELVariantTestSuite(unittest.TestCase):
             self.assertEqual(
                 lines[3],
                 "GATATATATAGATATATCTATATATATCTATATAGATATATCTATATCTATATAGATATATCTATATATATATAGATATATCTATATCTATATAGATATATATCTATATATATATCTATATAGATATATCTATATAGATATAGATATATATCTATATATAGATATAGATATATCTATATAGATATATATCTATAGATATCTATATATATAGATATATAGATATCTATATCTATATT",
+            )
+
+class SingleBaseComplexDELVariantTestSuite(unittest.TestCase):
+    def setUp(self):
+        self.vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
+##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+##contig=<ID=8,length=146364022>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+8	79683398	.	AACCTCCCAACGCAATAGACATTGTGGTTTTCATTGCATATCATTCCTATTTCTCTCTCTCCATTATTTAGCAGTAATTTTTTTAATGAA	C	20	PASS	END=79683487;SVTYPE=DEL;SVLEN=-89
+"""
+        )
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_breakpoints(self):
+        record = next(vcf.Reader(self.vcf_file))
+        variant = Variant.from_pyvcf(record, None)
+        
+        self.assertEqual(variant.left_flank_region_string(left_flank=1, right_flank=1), "8:79683397-79683398")
+        self.assertEqual(variant.right_flank_region_string(left_flank=1, right_flank=1), "8:79683487-79683488")
+
+        self.assertEqual(variant.ref_breakpoints(self.args.flank), ("8:1-2", "8:91-92"))
+        self.assertEqual(variant.alt_breakpoints(self.args.flank), ("8:1-2", "8:2-3"))
+
+    def test_consensus_fasta(self):
+        with patch.object(
+            Variant,
+            "reference_sequence",
+            return_value="AAACCTCCCAACGCAATAGACATTGTGGTTTTCATTGCATATCATTCCTATTTCTCTCTCTCCATTATTTAGCAGTAATTTTTTTAATGAAA"
+        ) as mock_ref:
+            record = next(vcf.Reader(self.vcf_file))
+            self.assertTrue(record.is_sv)
+            variant = Variant.from_pyvcf(record, None)
+            self.assertIsNotNone(variant)
+
+            fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args, line_width=sys.maxsize)
+            mock_ref.assert_called_once_with(region="8:79683397-79683488")
+
+            with open(fasta_path, "r") as fasta:
+                lines = [line.strip() for line in fasta]
+            self.assertEqual(len(lines), 4)
+            self.assertEqual(lines[0], ">8_79683397_79683488")
+            self.assertEqual(lines[0], f">{ref_contig}")
+            self.assertEqual(
+                lines[1],
+                "AAACCTCCCAACGCAATAGACATTGTGGTTTTCATTGCATATCATTCCTATTTCTCTCTCTCCATTATTTAGCAGTAATTTTTTTAATGAAA",
+            )
+            self.assertEqual(lines[2], ">8_79683397_79683488_alt")
+            self.assertEqual(lines[2], f">{alt_contig}")
+            self.assertEqual(
+                lines[3],
+                "ACA",
+            )
+
+class NonNormalizedComplexDELVariantTestSuite(unittest.TestCase):
+    def setUp(self):
+        self.vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=CIEND,Number=2,Type=Integer,Description="Confidence interval around END for imprecise variants">
+##INFO=<ID=CIPOS,Number=2,Type=Integer,Description="Confidence interval around POS for imprecise variants">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+##contig=<ID=4,length=191154276>
+#CHROM POS ID REF ALT QUAL FILTER INFO
+4	32197281	.	TGAACCTGGGAGGCAGAGCTTGCAGTGAGCAGAGATCATGCCACTGCACTCCAGCCTGGGCGACAGAGCAAGACTCCGTCTCAAAAAAAAAAAAAAAATTAGCCAGGCGTGGTGGCGGGCGCCTGTAGTCCCAGCTACTCAGGAGGCTGAGGCAGGAGAATGGCATG	TG	.	PASS    END=32197447;SVTYPE=DEL;SVLEN=-165
+"""
+        )
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()    
+    
+    def test_breakpoints(self):
+        record = next(vcf.Reader(self.vcf_file))
+        variant = Variant.from_pyvcf(record, None)
+        
+        self.assertEqual(variant.left_flank_region_string(left_flank=1, right_flank=1), "4:32197282-32197283")
+        self.assertEqual(variant.right_flank_region_string(left_flank=1, right_flank=1), "4:32197447-32197448")
+
+        self.assertEqual(variant.ref_breakpoints(self.args.flank), ("4:1-2", "4:166-167"))
+        self.assertEqual(variant.alt_breakpoints(self.args.flank), ("4:1-2", None))
+
+    def test_consensus_fasta(self):
+        with patch.object(
+            Variant,
+            "reference_sequence",
+            return_value="GAACCTGGGAGGCAGAGCTTGCAGTGAGCAGAGATCATGCCACTGCACTCCAGCCTGGGCGACAGAGCAAGACTCCGTCTCAAAAAAAAAAAAAAAATTAGCCAGGCGTGGTGGCGGGCGCCTGTAGTCCCAGCTACTCAGGAGGCTGAGGCAGGAGAATGGCATGA"
+        ) as mock_ref:
+            record = next(vcf.Reader(self.vcf_file))
+            self.assertTrue(record.is_sv)
+            variant = Variant.from_pyvcf(record, None)
+            self.assertIsNotNone(variant)
+
+            fasta_path, ref_contig, alt_contig = variant.synth_fasta(self.args, line_width=sys.maxsize)
+            mock_ref.assert_called_once_with(region="4:32197282-32197448")
+
+            with open(fasta_path, "r") as fasta:
+                lines = [line.strip() for line in fasta]
+            self.assertEqual(len(lines), 4)
+            self.assertEqual(lines[0], ">4_32197282_32197448")
+            self.assertEqual(lines[0], f">{ref_contig}")
+            self.assertEqual(
+                lines[1],
+                "GAACCTGGGAGGCAGAGCTTGCAGTGAGCAGAGATCATGCCACTGCACTCCAGCCTGGGCGACAGAGCAAGACTCCGTCTCAAAAAAAAAAAAAAAATTAGCCAGGCGTGGTGGCGGGCGCCTGTAGTCCCAGCTACTCAGGAGGCTGAGGCAGGAGAATGGCATGA",
+            )
+            self.assertEqual(lines[2], ">4_32197282_32197448_alt")
+            self.assertEqual(lines[2], f">{alt_contig}")
+            self.assertEqual(
+                lines[3],
+                "GA",
             )
 
 class SimpleINSVariantTestSuite(unittest.TestCase):
