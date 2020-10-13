@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+import argparse, logging, os, re, sys
+import pysam
+import vcf
+
+
+def makeArgParser():
+    """
+    Returns an argument parser parser with the command line arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Annotate SV VCF with END, SVLEN, etc.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-i", "--input", type=str, help="Path to input vcf file", required=True
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        action="store",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+    parser.add_argument(
+        "--symbolic",
+        help="Convert sequence resolved variants to symbolic alleles",
+        action="store_true",
+        default=False,
+    )
+    return parser
+
+
+def main(args):
+    vcf_reader = vcf.Reader(filename=args.input)
+    
+    vcf_reader.infos["END"] = vcf.parser._Info("END", 1, "Integer", "End position of the variant described in this record", None, None)   
+    vcf_reader.infos["SVTYPE"] = vcf.parser._Info("SVTYPE", 1, "String", "Type of structural variant", None, None)   
+    vcf_reader.infos["SVLEN"] = vcf.parser._Info("SVLEN", ".", "Integer", "Difference in length between REF and ALT alleles", None, None)   
+    
+    vcf_writer = vcf.Writer(args.output, vcf_reader)
+    for record in vcf_reader:
+        assert len(record.ALT) == 1, "Multiple alternates are not supported"
+        allele = record.ALT[0]
+        
+        if isinstance(allele, vcf.model._SV):
+            if "END" not in record.INFO:
+                # Missing necessary information for SV, skip...
+                continue
+            type = record.var_subtype
+            if type.startswith("DEL"):
+                record.INFO["SVLEN"] = -(int(record.INFO["END"]) - int(record.POS))
+            elif type.startswith("DUP"):
+                record.INFO["SVLEN"] = int(record.INFO["END"]) - int(record.POS)
+            else:
+                print(record)
+                assert False, "Unsupported variant type"
+            
+        else:
+            expected_end = record.POS + len(str(record.REF)) - 1
+            record.INFO["END"] = expected_end
+            
+            expected_svlen = len(str(allele)) - len(str(record.REF))
+            record.INFO["SVLEN"] = expected_svlen
+
+            # Used with SV-plaudit dataset to facilitate annotation (since some genptypers only report
+            # symbolic alleles)
+            if args.symbolic:
+                # This is brittle (doesn't handle SVs without padding base)
+                record.ALT = [vcf.model._SV(record.var_subtype)]
+                record.REF = record.REF[0]
+                
+
+        vcf_writer.write_record(record)
+
+
+if __name__ == "__main__":
+    parser = makeArgParser()
+    args = parser.parse_args()
+    main(args)

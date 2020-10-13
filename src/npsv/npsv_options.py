@@ -193,6 +193,14 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         default="svm",
         choices=CLASSIFIERS,
     )
+    # Only used testing differing number of replicates, not intended for general use
+    parser.add_argument(
+        "--variant-downsample",
+        dest="variant_downsample",
+        help=argparse.SUPPRESS,
+        type=int,
+        default=None,
+    )
     return parser
 
 

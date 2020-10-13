@@ -43,30 +43,46 @@ def main(args):
     for record in vcf_reader:
         assert len(record.ALT) == 1, "Multiple alternates are not supported"
         allele = record.ALT[0]
-        if (
-            isinstance(allele, vcf.model._Substitution)
-            and record.REF[0] != str(allele)[0]
-        ):
+        if isinstance(allele, vcf.model._Substitution):
             # Using the 0-indexed interface to pySAM
-            padding_base = fasta.fetch(record.CHROM, record.POS - 2, record.POS - 1)
+            padding_base = fasta.fetch(record.CHROM, record.POS - 2, record.POS - 1 + len(record.REF))
+            assert len(padding_base) == len(record.REF) + 1
 
-            # Update the variant with a padding base
-            record = vcf.model._Record(
-                record.CHROM,
-                record.POS - 1,
-                record.ID,
-                padding_base + record.REF,
-                [
-                    vcf.model._Substitution(padding_base + str(alt))
-                    for alt in record.ALT
-                ],
-                record.QUAL,
-                record.FILTER,
-                record.INFO,
-                record.FORMAT,
-                record._sample_indexes,
-                record.samples,
-            )
+            if record.REF != padding_base[1:]:
+                # Update the reference allele if it doesn't match the reference
+                record = vcf.model._Record(
+                    record.CHROM,
+                    record.POS,
+                    record.ID,
+                    padding_base[1:],
+                    record.ALT,
+                    record.QUAL,
+                    record.FILTER,
+                    record.INFO,
+                    record.FORMAT,
+                    record._sample_indexes,
+                    record.samples,
+                )
+         
+            if record.REF[0] != str(allele)[0]:
+                # Update the variant with a padding base
+                record = vcf.model._Record(
+                    record.CHROM,
+                    record.POS - 1,
+                    record.ID,
+                    padding_base[0] + record.REF,
+                    [
+                        vcf.model._Substitution(padding_base[0] + str(alt))
+                        for alt in record.ALT
+                    ],
+                    record.QUAL,
+                    record.FILTER,
+                    record.INFO,
+                    record.FORMAT,
+                    record._sample_indexes,
+                    record.samples,
+                )
+        
         vcf_writer.write_record(record)
 
 

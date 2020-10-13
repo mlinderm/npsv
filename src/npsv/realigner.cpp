@@ -559,6 +559,9 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
   sl::GenomicRegion left_breakpoint_region(left_breakpoint, reader_.Header());
   sl::GenomicRegion right_breakpoint_region(right_breakpoint, reader_.Header());
   
+  if (left_breakpoint_region.Width() != 2 || right_breakpoint_region.Width() != 2)
+    std::cerr << left_breakpoint_region << " " << right_breakpoint_region << std::endl;
+
   pyassert(left_breakpoint_region.Width() == 2 && right_breakpoint_region.Width() == 2, "Breakpoints should specify inclusive coordinates on each side of the breakpoint");
   pyassert(flank >= 1, "Flank size must be >= 1");
 

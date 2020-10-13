@@ -59,6 +59,8 @@ class Features(object):
         "ALT_READ",
         "REF_WEIGHTED_SPAN",
         "ALT_WEIGHTED_SPAN",
+        "REF_CONC_SPAN",
+        "ALT_CONC_SPAN",
         "INSERT_LOWER",
         "INSERT_UPPER",
         "CLIP_PRIMARY",
@@ -229,6 +231,8 @@ def extract_features(
     # TODO: Incorporate 'concordance' count features
     features.REF_WEIGHTED_SPAN = pair_results["ref_weighted_count"]
     features.ALT_WEIGHTED_SPAN = pair_results["alt_weighted_count"]
+    features.REF_CONC_SPAN = pair_results["ref_conc_count"]
+    features.ALT_CONC_SPAN = pair_results["alt_conc_count"]
     insert_count = pair_results["insert_count"]
     if insert_count > 0:
         features.INSERT_LOWER = pair_results["insert_lower"] / insert_count
@@ -303,7 +307,7 @@ def extract_features(
     if total_flank_bases > 0 and total_flank_length > 0:
         features.DHFFC = coverage / (total_flank_bases / total_flank_length)
     else:
-        features.DHFCC = 1. if coverage > 0 else 0.
+        features.DHFFC = 1. if coverage > 0 else 0.
 
     return features
 
@@ -338,7 +342,7 @@ def extract(
     """
     # Print header line as requested
     if args.header:
-        header(out_file, ac)
+        Features.header(out_file, ac)
 
     if sample is not None:
         pass

@@ -187,7 +187,7 @@ def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_CO
             return robust_cov.mahalanobis(real_x)[0]
 
         score = x.groupby(y).apply(mahal_score)
-
+        assert len(score) == 3, "Missing classes in Mahalanobis distance calculation"
         pred = score.idxmin()
         with np.errstate(under="ignore"):
             prob = chi2.logsf(score, len(features))
@@ -220,7 +220,7 @@ def add_derived_features(data):
 
 def filter_by_zscore(data, features, remove_z):
     """Remove rows with |z scores| > remove_z"""
-    return data[(np.abs(np.nan_to_num(zscore(data[features]))) < remove_z).all(axis=1)]
+    return data[(np.abs(np.nan_to_num(zscore(data[features]), posinf=0.0, neginf=0.0)) < remove_z).all(axis=1)]
 
 
 def genotype_vcf(
@@ -282,7 +282,7 @@ def genotype_vcf(
         single_pred = np.full(real_data.shape[0], -1, dtype=int)
         single_prob = np.full((real_data.shape[0], 3), 0, dtype=float)
 
-        # Construct clsasifiers for each variant type
+        # Construct classifiers for each variant type
         typed_sim_data = sim_data.groupby(TYPE_COL)
         typed_real_data = real_data.groupby(TYPE_COL)
         for variant_type, sim_group in typed_sim_data:
@@ -327,7 +327,8 @@ def genotype_vcf(
             # Reconstruct original vectors
             indices = typed_real_data.indices[variant_type]
             single_pred[indices] = pred
-            single_prob[indices] = prob
+            if prob.shape[1] == 3:
+                single_prob[indices] = prob
 
         # Report accuracy is actual class is defined
         if logging.getLogger().isEnabledFor(logging.DEBUG) and KLASS_COL in real_data:
@@ -354,9 +355,9 @@ def genotype_vcf(
         grouped_sim_data = sim_data.groupby(VAR_COL)
 
         # Filter to available features for per-variant classifier
-        desired_features = CLASSIFIER_FEATURES[args.classifier]
+        desired_features = set(CLASSIFIER_FEATURES[args.classifier]) - set("SVLEN")
         pervariant_features = list(
-            set(desired_features) & set(sim_data) & set(real_data)
+            desired_features & set(sim_data) & set(real_data)
         )
         logging.info(
             "Building 'per-variant' %s classifiers based on simulated data with features: %s",
@@ -453,8 +454,16 @@ def genotype_vcf(
             else:
                 # Construct local classifier
                 sim_group = grouped_sim_data.get_group(group_vals)
+                if args.variant_downsample:
+                    sim_group = (
+                        sim_group.groupby(VAR_COL + [KLASS_COL])
+                        .head(args.variant_downsample)
+                        .reset_index(drop=True)
+                    )
+                
+                with pd.option_context("mode.use_inf_as_na", True), warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
 
-                with pd.option_context("mode.use_inf_as_na", True):
                     # Drop any columns that are entirely NA
                     sim_group = sim_group.dropna(axis=1, how="all")
                     real_group = real_group.dropna(axis=1, how="all")
@@ -467,23 +476,18 @@ def genotype_vcf(
                     # Then drop rows with na, inf, etc. from training data
                     sim_group = sim_group.dropna(axis=0, subset=avail_features)
 
-                # Remove outliers from training data
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    logging.debug(
-                        "Classifying with %d observations before outlier filtering",
-                        sim_group.shape[0],
-                    )
+                    # Remove outliers from training data
+                    rows_before = sim_group.shape[0]
                     sim_group = (
                         sim_group.groupby(KLASS_COL)
                         .apply(filter_by_zscore, avail_features, remove_z)
                         .reset_index(drop=True)
                     )
-
-                logging.debug(
-                    "Classifying with %d observations after outlier filtering",
-                    sim_group.shape[0],
-                )
+                    # TODO: Check that all three classes are still present
+                    logging.debug(
+                        "Classifying with %d observations after removing %d outliers",
+                        sim_group.shape[0], rows_before - sim_group.shape[0],
+                    )
 
                 mahal_score = None
                 if args.dm2:
@@ -496,7 +500,6 @@ def genotype_vcf(
                     except:
                         pass
 
-                # Classify variant and generate VCF genotype entry
                 try:
                     if args.classifier == "svm":
                         pred, prob = svm_classify(

@@ -119,6 +119,7 @@ setup(
         "scripts/vcf2samplot",
         "scripts/svviz22vcf",
         "scripts/padAlleles",
+        "scripts/fixSVVCF",
     ],
     entry_points="""
         [console_scripts]

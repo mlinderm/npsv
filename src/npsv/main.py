@@ -110,6 +110,20 @@ def make_argument_parser():
         default="global",
         choices=("global", "chrom", "flank"),
     )
+    synth_options.add_argument(
+        "--max-flank-norm-covg",
+        dest="max_flank_norm_covg",
+        help="Max flank normalized coverage",
+        type=float,
+        default=2.0,
+    )
+    synth_options.add_argument(
+        "--keep-synth-bams",
+        dest="keep_synth_bams",
+        help="Keep synthetic data files",
+        action="store_true",
+        default=False,
+    )
     add_simulation_options(synth_options)
     add_hybrid_options(synth_options)
 
@@ -170,6 +184,13 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     setattr(extract_args, "header", False)
     setattr(extract_args, "threads", 1)
 
+    # Create directory for synthetic files
+    if args.keep_synth_bams:
+        synth_dir = args.output
+    else:
+        synth_dir = tempfile.mkdtemp(dir=args.tempdir)
+        setattr(extract_args, "tempdir", synth_dir)
+
     # If using hybrid mode, only simulate the number of replicates needed for single model
     # for variants larger than threshold
     if variant.event_length >= args.hybrid_threshold:
@@ -181,7 +202,8 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     real_out_file = open(os.path.join(args.output, description + ".real.tsv"), "w")
 
     # Extract features from randomly sampled variants as null model
-    if args.sim_ref:
+    # TODO: Integrate duplications into random variant generation
+    if args.sim_ref or variant.is_duplication or variant.event_length == 0:
         # Generate the null model via simulation
         simulated_ACs = [0, 1, 2]
     else:
@@ -196,7 +218,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
             use_X = True
 
         # Generate random variants as the null model
-        random_vcf_path = os.path.join(args.output, description + ".random.vcf")
+        random_vcf_path = os.path.join(synth_dir, description + ".random.vcf")
         with open(random_vcf_path, "w") as random_vcf_file:
             random_variants(
                 variant,
@@ -211,26 +233,31 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
             )
 
         # Extract features from the random data
-        extract(
-            extract_args,
-            random_vcf_path,
-            args.bam,
-            sample=sample,
-            ac=0,
-            out_file=sim_out_file,
-            force_variant=variant,
-            insert_hist=True,
-        )
+        try:
+            extract(
+                extract_args,
+                random_vcf_path,
+                args.bam,
+                sample=sample,
+                ac=0,
+                out_file=sim_out_file,
+                force_variant=variant,
+                insert_hist=True,
+            )
+        except Exception as e:
+            print(description)
+            raise
+
 
     # Extract features from synthetic data.
 
     # Generate FASTA path once (can be reused by realigner for every replicate)
-    fasta_path, ref_contig, alt_contig = variant.synth_fasta(args)
+    fasta_path, ref_contig, alt_contig = variant.synth_fasta(extract_args)
 
     # Check if shared reference is available
     shared_ref_arg = ""
-    if check_if_bwa_index_loaded(args.reference):
-        shared_ref_arg = f"-S {quote(os.path.basename(args.reference))}"
+    if check_if_bwa_index_loaded(extract_args.reference):
+        shared_ref_arg = f"-S {quote(os.path.basename(extract_args.reference))}"
 
     if args.sim_depth == "global":
         hap_coverage = sample.mean_coverage / 2
@@ -239,50 +266,51 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     elif args.sim_depth == "flank":
         # Determine coverage from flanking regions around event
         _, left_flank_bases, left_flank_length = coverage_over_region(
-            args.bam,
+            extract_args.bam,
             variant.left_flank_region_string(args.flank),
-            min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
+            min_mapq=extract_args.min_mapq, min_baseq=extract_args.min_baseq, min_anchor=extract_args.min_anchor
         )
         _, right_flank_bases, right_flank_length = coverage_over_region(
-            args.bam,
+            extract_args.bam,
             variant.right_flank_region_string(args.flank),
-            min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
+            min_mapq=extract_args.min_mapq, min_baseq=extract_args.min_baseq, min_anchor=extract_args.min_anchor
         )
         total_flank_bases = left_flank_bases + right_flank_bases
         total_flank_length = left_flank_length + right_flank_length
         if total_flank_bases > 0 and total_flank_length > 0:
-            hap_coverage = (total_flank_bases / total_flank_length) / 2
+            flank_coverage = total_flank_bases / total_flank_length
+            hap_coverage = min(flank_coverage, sample.mean_coverage * extract_args.max_flank_norm_covg) / 2
         else:
             hap_coverage = sample.mean_coverage / 2
 
     stats_file_arg = ""
     gnomad_covg_file_arg = ""
-    if args.gnomad_covg is not None:
+    if extract_args.gnomad_covg is not None:
         # Use gnomAD coverage file to model coverage bias in the simulation
-        gnomad_covg_file_arg = f"-g {quote(args.gnomad_covg)}"
+        gnomad_covg_file_arg = f"-g {quote(extract_args.gnomad_covg)}"
         hap_coverage *= GNOMAD_MULT_COVG
-    elif args.covg_gc_bias and args.stats_path is not None:
+    elif extract_args.covg_gc_bias and extract_args.stats_path is not None:
         # Use the BAM stats to model GC bias in the simulation
-        stats_file_arg = f"-j {quote(args.stats_path)}"
-        hap_coverage *= sample.max_gc_normalized_coverage(limit=args.max_gc_norm_covg)
+        stats_file_arg = f"-j {quote(extract_args.stats_path)}"
+        hap_coverage *= sample.max_gc_normalized_coverage(limit=extract_args.max_gc_norm_covg)
 
     for z in simulated_ACs:
-        synthetic_bam_path = os.path.join(args.output, f"{description}_{z}.bam")
-        if not args.reuse or not os.path.exists(synthetic_bam_path):
+        synthetic_bam_path = os.path.join(synth_dir, f"{description}_{z}.bam")
+        if not extract_args.reuse or not os.path.exists(synthetic_bam_path):
             # Synthetic data generation seems to fail randomly for some variants, so retry
             @retry(tries=2)
             def gen_synth_bam():
                 # Generate synthetic BAM file
                 synth_commandline = f"synthBAM \
-                    -t {quote(args.tempdir)} \
-                    -R {quote(args.reference)} \
+                    -t {quote(extract_args.tempdir)} \
+                    -R {quote(extract_args.reference)} \
                     {shared_ref_arg} \
                     -c {hap_coverage:0.1f} \
                     -m {sample.mean_insert_size} \
                     -s {sample.std_insert_size} \
-                    -l {art_read_length(sample.read_length, args.profile)} \
-                    -p {args.profile} \
-                    -f {args.flank} \
+                    -l {art_read_length(sample.read_length, extract_args.profile)} \
+                    -p {extract_args.profile} \
+                    -f {extract_args.flank} \
                     -i {replicates} \
                     -z {z} \
                     -n {sample.name} \
@@ -332,7 +360,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
                     input_fasta=fasta_path,
                     ref_contig=ref_contig,
                     alt_contig=alt_contig,
-                    insert_hist=args.insert_hist,
+                    insert_hist=extract_args.insert_hist,
                 )
                 features.print_features(sim_out_file, ac=z)
             finally:
@@ -354,6 +382,11 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
 
     sim_out_file.close()
     real_out_file.close()
+
+    # Cleanup temporary files created for this variant
+    if synth_dir != args.output:
+        shutil.rmtree(synth_dir)
+
     return sim_out_file.name, real_out_file.name
 
 

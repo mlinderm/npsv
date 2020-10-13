@@ -98,8 +98,8 @@ def plot_features(
         
         fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(8.5, 6))
         
-        sns.scatterplot(ax=ax1, x="REF_SPLIT", y="ALT_SPLIT", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
-        sns.scatterplot(ax=ax2, x="REF_SPAN", y="ALT_SPAN", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax1, x="REF_READ", y="ALT_READ", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax2, x="REF_WEIGHTED_SPAN", y="ALT_WEIGHTED_SPAN", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
         sns.scatterplot(ax=ax3, x="INSERT_LOWER", y="INSERT_UPPER", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
         
         plot_hist(ax=ax4, col="DHFC", data=plot_data, colors=colors)
