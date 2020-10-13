@@ -11,7 +11,7 @@ import seaborn as sns
 
 from npsv.feature_extraction import Features
 from npsv.variant import variant_descriptor
-from npsv.genotyper import add_derived_features
+from npsv.genotyper import add_derived_features, filter_by_zscore
 
 FEATURE_COL = Features.FEATURES
 VARIANT_COL = ["#CHROM", "START", "END", "TYPE"]
@@ -77,18 +77,12 @@ def plot_features(
             warnings.simplefilter("ignore")
             current_sim = (
                 current_sim.groupby("AC")
-                .apply(
-                    lambda g: g[
-                        (np.abs(np.nan_to_num(stats.zscore(g[features]))) < 5).all(
-                            axis=1
-                        )
-                    ]
-                )
+                .apply(filter_by_zscore, features, 5)
                 .reset_index(drop=True)
             )
 
         plot_data = current_sim.append(current_real)
-        # Don't yet know how to encode AC directly (needs to strings for plotting)
+        # Don't yet know how to encode AC directly (need strings for plotting)
         plot_data["AC"] = pd.Categorical(
             plot_data["AC"], categories=[0, 1, 2, -1]
         ).rename_categories(["REF", "HET", "HOM", "Act"])
@@ -96,20 +90,22 @@ def plot_features(
         colors = sns.mpl_palette("Set1", 3) + [(0, 0, 0)]  # Actual data is black
         markers = { "REF": "o", "HET": "o", "HOM": "o", "Act": "s"}
         
-        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(8.5, 6))
+        fig, ((ax11, ax12, ax13, ax14), (ax21, ax22, ax23, ax24)) = plt.subplots(2, 4, figsize=(14, 8))
         
-        sns.scatterplot(ax=ax1, x="REF_READ", y="ALT_READ", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
-        sns.scatterplot(ax=ax2, x="REF_WEIGHTED_SPAN", y="ALT_WEIGHTED_SPAN", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
-        sns.scatterplot(ax=ax3, x="INSERT_LOWER", y="INSERT_UPPER", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
-        
-        plot_hist(ax=ax4, col="DHFC", data=plot_data, colors=colors)
-        plot_hist(ax=ax5, col="DHBFC", data=plot_data, colors=colors)
-        plot_hist(ax=ax6, col="DHFFC", data=plot_data, colors=colors)
+        sns.scatterplot(ax=ax11, x="REF_READ", y="ALT_READ", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax12, x="REF_WEIGHTED_SPAN", y="ALT_WEIGHTED_SPAN", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        sns.scatterplot(ax=ax13, x="INSERT_LOWER", y="INSERT_UPPER", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        plot_hist(ax=ax14, col="CLIP_PRIMARY", data=plot_data, colors=colors)
+
+        plot_hist(ax=ax21, col="COVERAGE", data=plot_data, colors=colors)
+        plot_hist(ax=ax22, col="DHFC", data=plot_data, colors=colors)
+        plot_hist(ax=ax23, col="DHBFC", data=plot_data, colors=colors)
+        plot_hist(ax=ax24, col="DHFFC", data=plot_data, colors=colors)
 
         fig.suptitle("{}:{}-{}".format(*variant), size=16)
-        fig.subplots_adjust(top=0.95)
+        fig.subplots_adjust(top=0.95, wspace=0.3, hspace=0.3)
 
         # Save plot to file name based on variant descriptor
         description = variant_descriptor(record)
         logging.info("Plotting variant into %s.png", description)
-        plt.savefig(os.path.join(out_dir_path, variant_descriptor(record) + ".png"))
+        plt.savefig(os.path.join(out_dir_path, f"{description}.png"))

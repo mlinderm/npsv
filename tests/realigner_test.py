@@ -216,9 +216,9 @@ class NPSVARealignedFragmentsTest(unittest.TestCase):
             pair_results = fragments.count_pipeline_straddlers(
                 left_breakpoint, right_breakpoint, self.args.flank, -variant.event_length, 1.5, 10,
             )
-            self.assertAlmostEqual(pair_results["alt_weighted_count"], 13.96, places=1)
+            self.assertAlmostEqual(pair_results["alt_weighted_count"], 13.496, places=1)
             self.assertAlmostEqual(pair_results["insert_lower"], 0.0, places=2)
-            self.assertAlmostEqual(pair_results["insert_upper"] / pair_results["insert_count"], 0.16, places=2)
+            self.assertAlmostEqual(pair_results["insert_upper"] / pair_results["insert_count"], 0.166, places=2)
 
     def test_pipeline_clip_counting(self):
         try:

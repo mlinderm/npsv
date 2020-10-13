@@ -1,4 +1,3 @@
-
 # NPSV: Non-parametric Structural Variant Genotyper
 
 ## Installation
@@ -62,24 +61,31 @@ npsv \
     -b tests/data/1_1598414_1598580_DEL.bam \
     -o tests/results \
     --prefix 1_1598414_1598580_DEL.result \
-    -p 148 --fragment-mean 573 --fragment-sd 164 --depth 25 \
-    --n 5 --sim-ref --gt-mode variant -c rf
+    --read-length 148 --fragment-mean 573 --fragment-sd 164 --depth 25 \
+    --n 5 \
+    --sim-ref \
+    --gt-mode variant \
+    --classifier rf
 ```
 
-The above will genotype the single deletion by training a unique classifier for that specific variant (`--gt-mode variant`) using 5 simulated replicates of each zygosity (`--n 5`) as the training data.
+This will produce a VCF file `test/results/1_1598414_1598580_DEL.result.npsv.vcf` (determined by the output directory and prefix) with the genotypes, along with TSV files with the real and simulated features.
+
+The above will genotype the single deletion by training a unique classifier for that specific variant (`--gt-mode variant`) using 5 simulated replicates of each zygosity (`--n 5`) as the training data. Five replicates is chosen for speeding up the examples, 50-100 replicates is more typical for effective genotyping.
 
 Creating the simulated replicates is more efficient when the BWA indices are loaded into shared memory prior to running NPSV (and thus doesn't need to re-loaded for each replicate). To do so run the following before launching NPSV:
 ```
 bwa shm /data/human_g1k_v37.fasta
 ```
 
-### Preprocessing to create "stats" file
+The `--sim-ref` argument is used here because the test data (`-b`) only includes a small set of the data. By default `npsv` samples random size-matched SVs from the genome to serve as the "null model" with homozygous reference genotypes, but that requires a whole genome sequencing data. `sim-ref` will use simulation to generate homozygous reference data.
+
+### Preprocessing to create a "stats" file
 
 NPSV can utilize more information about the aligned reads to improve simulation and feature extraction. The preprocessing step, run with the `preprocess` sub-command for `npsv`, will create a JSON file with the relevant stats. It can compute those stats directly, or extract them from the Picard metrics that may already have been generated as part of many pipelines. For example, the following command would 
 
 ```
 npsvg preprocess \
-    -r $(REFERENCE) \
+    -r /data/human_g1k_v37.fasta \
     -b HG002-ready.bam \
     --picard-gc HG002-ready.gc_bias.detail_metrics \
     --picard-insert HG002-ready.insert_size_metrics \
@@ -101,7 +107,10 @@ npsv \
     -o tests/results \
     --prefix 1_1598414_1598580_DEL.result \
     --stats-path tests/data/stats.json \
-    --n 5 --sim-ref --gt-mode variant -c rf
+    --n 5 \
+    --sim-ref \
+    --gt-mode variant \
+    --classifier rf
 ```
 
 ### Proposing alternate SV representations
@@ -129,7 +138,11 @@ npsv \
     --stats-path tests/data/stats.json \
     -o tests/results \
     --prefix 1_1598414_1598580_DEL.propose \
-    --n 5 --sim-ref --gt-mode variant -c rf --dm2
+    --n 5 \
+    --sim-ref \
+    --gt-mode variant \
+    --classifier rf \
+    --dm2
 ```
 
 Then select the best of the proposed representations with the `refine` sub-command. Refinement will update the original VCF with genotypes for the best representation.
@@ -137,6 +150,13 @@ Then select the best of the proposed representations with the `refine` sub-comma
 ```
 npsvg \
     refine \
+    --select dm2 \
     -i tests/results/1_1598414_1598580_DEL.propose.npsv.vcf \
     -o tests/results/1_1598414_1598580_DEL.propose.refined.vcf
 ```
+
+## FAQ
+
+### Parallelization
+
+`npsv` can simulate and extract variant evidence in parallel (controlled via the `--threads` option), before performing the genotyping in serial.  In "variant" mode, each variant can be genotyped independently. When employing that genotyping mode, a typical approach is to partition the input VCF file into chunks that are analyzed concurrently.

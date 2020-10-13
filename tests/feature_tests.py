@@ -87,7 +87,6 @@ class DELFeaturesTest(unittest.TestCase):
                 ref_contig="1_2073761_2073846_DEL",
                 alt_contig="1_2073761_2073846_DEL_alt",
             )
-            features.print_features(sys.stdout)
 
 class PySAMFeatures(unittest.TestCase):
     def test_region_parsing(self):
