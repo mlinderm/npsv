@@ -224,8 +224,9 @@ def extract_features(
     left_breakpoint = variant.left_flank_region_string(left_flank=1, right_flank=1)
     right_breakpoint = variant.right_flank_region_string(left_flank=1, right_flank=1)
     
+    fragment_delta = -variant.event_length if variant.is_deletion else variant.event_length
     pair_results = fragments.count_pipeline_straddlers(
-        left_breakpoint, right_breakpoint, pair_flank, -variant.event_length, 1.5, args.min_anchor,
+        left_breakpoint, right_breakpoint, pair_flank, fragment_delta, 1.5, args.min_anchor,
     )
 
     # TODO: Incorporate 'concordance' count features
