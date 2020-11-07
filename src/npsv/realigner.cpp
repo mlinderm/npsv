@@ -288,7 +288,7 @@ double ScoreAlignment(const std::string& read_sequence,
 void ScoreAlignments(const IndexedSequence& index, const sl::BamRecord& read,
                      sl::BamRecordVector& alignments) {
   const std::string read_seq(read.Sequence());
-  const std::string base_qualities(read.Qualities(0));
+  const std::string base_qualities(read.Qualities(0));  // Should this be 33?
   const std::string& ref_seq(index.Sequence());
 
   for (auto& alignment : alignments) {

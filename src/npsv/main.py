@@ -33,7 +33,7 @@ def make_argument_parser():
     )
     parser.add_argument(
         "--prefix",
-        help="Prefix for feature files and genotypes",
+        help="Prefix for output feature files and genotypes",
         type=str,
         required=True,
     )
@@ -404,7 +404,7 @@ def main():
     os.makedirs(args.tempdir, exist_ok=True)
 
     # Initialize parallel computing setup
-    ray.init(num_cpus=args.threads, temp_dir=args.tempdir, include_dashboard=False)
+    ray.init(num_cpus=args.threads, _temp_dir=args.tempdir, include_dashboard=False)
 
     # TODO: If library is not specified compute statistics, i.e. mean insert size, tec.
     if args.stats_path is not None:
