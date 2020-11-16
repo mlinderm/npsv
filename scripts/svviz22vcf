@@ -50,9 +50,10 @@ def report_name(record: vcf.model._Record) -> List[str]:
     # Match the scheme used in svviz2
     # https://github.com/nspies/svviz2/blob/44f7bfc75bf84c1db4563d9fd30bf20967d1c825/src/svviz2/app/variants.py#L259
     id = (record.ID or f"{record.CHROM}_{record.POS}_{record.sv_end}").replace(":","_").replace(";","")
+    kind = (record.INFO.get("SVTYPE", None) or record.var_subtype)[:3].lower()
     return [
-        f"{id}.{record.var_subtype[:3].lower()}_{record.CHROM}_{record.POS-1}",
-        f"{id}.{record.var_subtype[:3].lower()}_{record.CHROM}_{record.POS}",
+        f"{id}.{kind}_{record.CHROM}_{record.POS-1}",
+        f"{id}.{kind}_{record.CHROM}_{record.POS}",
         f"{id}.SequenceDefinedVariant.{record.CHROM}_{record.POS-1}-{record.sv_end-1}",
     ]
 
@@ -86,10 +87,10 @@ def get_numeric_list(grouping, key, digits=0) -> List[str]:
 
 
 def get_GQ(grouping, key) -> float:
-    """Compute GQ value from from svviz2 GQ_* value"""
-    values = map(float, get_value(grouping, key).strip("[]").split())
+    """Compute GQ value from from svviz2 GL_* value"""
+    values = [-10.0*float(v) for v in get_value(grouping, key).strip("[]").split()]
     values = sorted(values)
-    return values[-1] - values[-2]
+    return values[1] - values[0]
 
 
 def construct_call(table, model="count") -> str:
@@ -97,7 +98,7 @@ def construct_call(table, model="count") -> str:
     alleles = table.groupby(["allele", "key"])
     return "{gt}:{gq:.0f}:{gl}:{ref},{alt}".format(
         gt=get_value(alleles, ("all", f"GT_{model}")),
-        gq=min(get_GQ(alleles, ("all", f"GQ_{model}")), 99),
+        gq=min(get_GQ(alleles, ("all", f"GL_{model}")), 99),
         gl=",".join(get_numeric_list(alleles, ("all", f"GL_{model}"), 2)),
         ref=get_value(alleles, ("ref", "count")),
         alt=get_value(alleles, ("alt", "count")),

@@ -714,6 +714,8 @@ std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::stri
 
 
   int rl_reads = 0, al_reads = 0, rr_reads = 0, ar_reads = 0, amb_reads = 0;
+  double rl_mapq_reads = 0, al_mapq_reads = 0, rr_mapq_reads = 0, ar_mapq_reads = 0;
+
   // Track the read names overlapping each breakpoint
   std::map<std::string, std::vector<std::string> > overlap_read_names {
     { "rl", std::vector<std::string>() },
@@ -776,20 +778,24 @@ std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::stri
       // Alternate alignment
       if (max_alt_overlap.HasLeftOverlap()) {
         al_reads += 1;
+        al_mapq_reads += (1. - PhredToProb(max_alt_overlap.MaxQualityScore()));
         overlap_read_names["al"].emplace_back(read_name);
       }
       if (max_alt_overlap.HasRightOverlap()) {
         ar_reads += 1;
+        ar_mapq_reads += (1. - PhredToProb(max_alt_overlap.MaxQualityScore()));
         overlap_read_names["ar"].emplace_back(read_name);
       }
     } else if (max_ref_overlap.HasOverlap() && delta < -min_score_delta) {
       // Reference alignment
       if (max_ref_overlap.HasLeftOverlap()) {
         rl_reads += 1;
+        rl_mapq_reads += (1. - PhredToProb(max_ref_overlap.MaxQualityScore()));
         overlap_read_names["rl"].emplace_back(read_name);
       }
       if (max_ref_overlap.HasRightOverlap()) {
         rr_reads += 1;
+        rr_mapq_reads += (1. - PhredToProb(max_ref_overlap.MaxQualityScore()));
         overlap_read_names["rr"].emplace_back(read_name);
       }
     } else {
@@ -804,6 +810,10 @@ std::tuple<std::map<std::string,int>, std::map<std::string,std::vector<std::stri
   results["al"] = al_reads;
   results["ar"] = ar_reads;
   results["amb"] = amb_reads;
+  results["rl_mapq"] = rl_mapq_reads;
+  results["rr_mapq"] = rr_mapq_reads;
+  results["al_mapq"] = al_mapq_reads;
+  results["ar_mapq"] = ar_mapq_reads;
 
   return std::make_tuple(results, overlap_read_names);
 }

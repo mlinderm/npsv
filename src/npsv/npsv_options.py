@@ -96,6 +96,13 @@ def add_feature_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         type=int,
         help="Min length to be considered a clipped reads",
     )
+    parser.add_argument(
+        "--mapq-reads",
+        dest="mapq_reads",
+        action="store_true",
+        default=False,
+        help="Weight read counts by re-alignment quality score",
+    )
     return parser
 
 

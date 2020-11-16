@@ -155,8 +155,12 @@ def count_realigned_reads(
     )
 
     # If multiple breakpoints, average counts
-    ref_reads = (counts["rl"] + counts["rr"]) / (1 if rr_breakpoint is None else 2)
-    alt_reads = (counts["al"] + counts["ar"]) / (1 if ar_breakpoint is None else 2)
+    if args.mapq_reads:
+        ref_reads = (counts["rl_mapq"] + counts["rr_mapq"]) / (1 if rr_breakpoint is None else 2)
+        alt_reads = (counts["al_mapq"] + counts["ar_mapq"]) / (1 if ar_breakpoint is None else 2)
+    else:
+        ref_reads = (counts["rl"] + counts["rr"]) / (1 if rr_breakpoint is None else 2)
+        alt_reads = (counts["al"] + counts["ar"]) / (1 if ar_breakpoint is None else 2)
 
     return ref_reads, alt_reads, read_names
 

@@ -49,9 +49,20 @@ docker run --entrypoint /bin/bash \
     npsv
 ```
 
-## NPSV Workflow
+## NPSV Genotyping
 
 The NPSV package installs two key executables, `npsv`, the main entry point for the genotyper, and `npsvg`, which implements multiple sub-commands for preprocessing and individual steps in the different NPSV workflows.
+
+### Prerequisites
+
+NPSV requires the reference genome and these examples, in particular, require the "b37" reference. To obtain and index those files from within the Docker container:
+```
+cd /data
+curl ftp://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/human_g1k_v37.fasta.gz -o human_g1k_v37.fasta.gz
+gunzip human_g1k_v37.fasta.gz
+bwa index human_g1k_v37.fasta
+samtools faidx human_g1k_v37.fasta
+```
 
 ### Basic Workflow
 
@@ -120,7 +131,17 @@ npsv \
     --classifier rf
 ```
 
-### Proposing alternate SV representations
+## Proposing alternate SV representations
+
+### Prerequisites
+
+Variant proposal requires a BED file (`--simple-repeats-bed`) derived from the UCSC Genome Browser [simpleRepeats.txt.gz](http://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/simpleRepeat.txt.gz) table dump that contains the standard BED columns plus the repeat period, number of copies and consensus repeat sequence. Alternative representations will only be generated for variants that overlap regions in this file. For convenience `simple_repeats.b37.bed.gz` and the index file (along with the hg38 version `simple_repeats.hg38.bed.gz`) are available at <http://skylight.middlebury.edu/~mlinderman/data/simple_repeats.b37.bed.gz>. To download these files in the Docker container:
+```
+curl -k https://www.cs.middlebury.edu/~mlinderman/data/simple_repeats.b37.bed.gz -o /data/simple_repeats.b37.bed.gz
+curl -k https://www.cs.middlebury.edu/~mlinderman/data/simple_repeats.b37.bed.gz.tbi -o /data/simple_repeats.b37.bed.gz.tbi 
+```
+
+### Workflow
 
 To generate possible alternate representations, use the `propose` sub-command for `npsvg`, e.g.
 
@@ -132,8 +153,6 @@ npsvg \
     -i tests/data/1_1865644_1866241_DEL.vcf.gz \
     -o tests/results/1_1865644_1866241_DEL.propose.vcf
 ```
-
-The `--simple-repeats-bed` is a BED file derived from the UCSC Genome Browser simple repeats track that contains the standard BED columns plus the repeat period, number of copies and consensus repeat sequence. Alternative representations will only be generated for variants that overlap regions in this file.
 
 The `tests/results/1_1865644_1866241_DEL.propose.vcf` file contains the original variant along with the proposed alternative descriptions (linked by the "INFO/ORIGINAL" field).
 
@@ -171,6 +190,8 @@ When reviewing the pileup, the GIAB SV description appears to be "left shifted" 
 ```
 GT:PL:DM:AD:CL:OGT:OPL:ODM:OAD	0/1:99,0,99:7348.1,8.0,21366.2:31,21:1_1866388_1867000_DEL:0/0:0,99,99:17.4,570.1,85419.0:67,0
 ```
+
+Note that due to the random simulations the distances will differ between runs.
 
 ## FAQ
 
