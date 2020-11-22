@@ -351,6 +351,13 @@ def genotype_vcf(
             )
 
     if args.gt_mode in ("variant", "hybrid"):
+        if args.gt_mode == "hybrid" and args.filter_bed is not None:
+            # Clunky, but for the variant model we need unfiltered training data
+            sim_data = pd.read_table(
+                input_sim, na_values=".", dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
+            )
+            add_derived_features(sim_data)
+        
         # Prepare simulated data for per-variant classifier
         grouped_sim_data = sim_data.groupby(VAR_COL)
 
