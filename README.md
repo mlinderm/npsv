@@ -85,15 +85,13 @@ npsv \
     -o tests/results \
     --prefix 12_22129565_22130387_DEL.result \
     --read-length 148 --fragment-mean 573 --fragment-sd 164 --depth 25 \
-    --n 50 \
     --sim-ref \
-    --gt-mode variant \
-    --classifier rf
+    -DEL-n 50
 ```
 
 This will produce a VCF file `tests/results/12_22129565_22130387_DEL.result.npsv.vcf` (determined by the output directory and prefix) with the genotypes, along with TSV files with the real and simulated features. The input variant is derived from the Genome-in-a-Bottle SV dataset; NPSV successfully genotypes this variant as homozygous alternate.
 
-The above command will genotype the single deletion SV by training a unique Random Forest classifier (`--classifier rf`) for that specific variant (`--gt-mode variant`) using 50 simulated replicates of each zygosity (`--n 50`) as the training data.
+By default, NPSV uses "hybrid" mode for deletions (i.e., build per-variant classifiers trained on multiple simulated replicates of each zygosity for smaller variants and a single classifier for larger variants) and "single" mode for insertions (i.e., build just a single classifier using 1 replicate per variant per zygosity as the training data). Since this variant is a deletion < 1 kbp in length, NPSV will create a variant-specific classifier trained. The genotyping mode (single, variant, hybrid), classifier type, replicates, and threshold for choosing between per-variant and single classifiers in hybrid mode, are configurable for each variant type. To speed up this example we reduced the number of replicates to 50 (`--DEL-n 50`) from a default of 100.
 
 The `--sim-ref` argument is used here because the test data (`-b`) only includes a small set of the data. By default `npsv` samples random size-matched SVs from the genome to serve as the "null model" with homozygous reference genotypes, but that requires sequencing data from the whole genome. `--sim-ref` will use simulation to generate homozygous reference data.
 
@@ -125,10 +123,8 @@ npsv \
     -o tests/results \
     --prefix 12_22129565_22130387_DEL.result \
     --stats-path tests/data/stats.json \
-    --n 50 \
     --sim-ref \
-    --gt-mode variant \
-    --classifier rf
+    --DEL-n 50
 ```
 
 ## Proposing alternate SV representations
@@ -156,7 +152,7 @@ npsvg \
 
 The `tests/results/1_1865644_1866241_DEL.propose.vcf` file contains the original variant along with the proposed alternative descriptions (linked by the "INFO/ORIGINAL" field).
 
-Then genotype the expanded set of putative variant. Note that the refinement workflow requires "variant" mode and the `--dm2` option to compute the Mahalanobis distance between the real and simulated data.
+Then genotype the expanded set of putative variant. Note that the refinement workflow requires "variant" mode and the `--dm2` option to compute the Mahalanobis distance between the real and simulated data. Since this commands will genotype tens of putative variants, using multiple cores (if available) is recommended (see FAQ below).
 
 ```
 npsv \
@@ -168,11 +164,10 @@ npsv \
     --stats-path tests/data/stats.json \
     -o tests/results \
     --prefix 1_1865644_1866241_DEL.propose \
-    --n 50 \
     --sim-ref \
-    --gt-mode variant \
-    --classifier rf \
-    --dm2
+    --DEL-gt-mode variant \
+    --dm2 \
+    --DEL-n 50
 ```
 
 Then select the best of the proposed representations with the `refine` sub-command. Refinement will update the original VCF with genotypes for the best representation.

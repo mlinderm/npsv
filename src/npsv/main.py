@@ -77,9 +77,10 @@ def make_argument_parser():
 
     # Synthesizer options
     synth_options = parser.add_argument_group()
-    synth_options.add_argument(
-        "--n", help="Number of replicates", type=int, default=100
-    )
+    for kind in ("DEL","INS"):
+        synth_options.add_argument(
+            f"--{kind}-n", dest=f"{kind}_n", help="Number of replicates", type=int, default=GENOTYPING_DEFAULTS[kind].get("n", 100),
+        )
     synth_options.add_argument(
         "--sim-ref",
         help="Simulate AC=0 genotype instead of randomly sample",
@@ -193,10 +194,10 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
 
     # If using hybrid mode, only simulate the number of replicates needed for single model
     # for variants larger than threshold
-    if variant.event_length >= args.hybrid_threshold:
+    if variant.event_length >= getattr(args, f"{variant.subtype}_hybrid_threshold", GENOTYPING_DEFAULTS["ANY"]["hybrid_threshold"]):
         replicates = args.downsample
     else:
-        replicates = args.n
+        replicates = getattr(args, f"{variant.subtype}_n", GENOTYPING_DEFAULTS["ANY"]["n"])
 
     sim_out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
     real_out_file = open(os.path.join(args.output, description + ".real.tsv"), "w")

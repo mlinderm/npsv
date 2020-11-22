@@ -232,7 +232,7 @@ def genotype_vcf(
     remove_z=5.0,
     samples=[],
 ):
-    """Write new VCF with NSPV-determined genotypes
+    """Write new VCF with NPSV-determined genotypes
 
     Args:
         args (argparse.Namespace): Command arguments
@@ -242,7 +242,7 @@ def genotype_vcf(
         output_file ([type], optional): File object for writing VCF. Defaults to sys.stdout.
     """
     # Load simulation and real data
-    if args.gt_mode in ("single", "hybrid") and args.filter_bed is not None:
+    if args.filter_bed is not None:
         # If provided, filter training data by BED file
         filter_bed = bed.BedTool(args.filter_bed)
         sim_bed = bed.BedTool(input_sim)
@@ -275,10 +275,10 @@ def genotype_vcf(
     add_derived_features(sim_data)
     add_derived_features(real_data)
 
-    if args.gt_mode in ("single", "hybrid"):
-        single_classifier = (
-            args.classifier if args.gt_mode == "single" else args.hybrid_classifier
-        )
+    # Lines to add to VCF header
+    classifier_vcf_metadata = {}
+
+    if not ({args.DEL_gt_mode, args.INS_gt_mode}).isdisjoint({"single", "hybrid"}):
         single_pred = np.full(real_data.shape[0], -1, dtype=int)
         single_prob = np.full((real_data.shape[0], 3), 0, dtype=float)
 
@@ -286,8 +286,12 @@ def genotype_vcf(
         typed_sim_data = sim_data.groupby(TYPE_COL)
         typed_real_data = real_data.groupby(TYPE_COL)
         for variant_type, sim_group in typed_sim_data:
-            real_group = typed_real_data.get_group(variant_type)
+            if getattr(args, f"{variant_type}_gt_mode") == "single":
+                single_classifier = getattr(args, f"{variant_type}_classifier")
+            else:
+                single_classifier = getattr(args, f"{variant_type}_hybrid_classifier")
 
+            real_group = typed_real_data.get_group(variant_type)
             sim_group = (
                 sim_group.groupby(VAR_COL + [KLASS_COL])
                 .head(args.downsample)
@@ -315,6 +319,9 @@ def genotype_vcf(
                 variant_type,
                 ", ".join(single_features),
             )
+            classifier_vcf_metadata[f"npsv_{variant_type}_single_classifier"] = [
+                f"{single_classifier}({','.join(single_features)})"
+            ]
             if single_classifier == "svm":
                 pred, prob = svm_classify(
                     sim_group, real_group, features=single_features
@@ -350,8 +357,8 @@ def genotype_vcf(
                 bayesian_accuracy,
             )
 
-    if args.gt_mode in ("variant", "hybrid"):
-        if args.gt_mode == "hybrid" and args.filter_bed is not None:
+    if not ({args.DEL_gt_mode, args.INS_gt_mode}).isdisjoint({"variant", "hybrid"}):
+        if args.filter_bed is not None:
             # Clunky, but for the variant model we need unfiltered training data
             sim_data = pd.read_table(
                 input_sim, na_values=".", dtype={"#CHROM": str, "SAMPLE": str, "AC": int}
@@ -362,15 +369,24 @@ def genotype_vcf(
         grouped_sim_data = sim_data.groupby(VAR_COL)
 
         # Filter to available features for per-variant classifier
-        desired_features = set(CLASSIFIER_FEATURES[args.classifier]) - set("SVLEN")
-        pervariant_features = list(
-            desired_features & set(sim_data) & set(real_data)
-        )
-        logging.info(
-            "Building 'per-variant' %s classifiers based on simulated data with features: %s",
-            args.classifier,
-            ", ".join(pervariant_features),
-        )
+        pervariant_features = {}
+        for kind in ("DEL", "INS"):
+            if getattr(args, f"{kind}_gt_mode") not in ("variant", "hybrid"):
+                continue
+            variant_classifier = getattr(args, f"{kind}_classifier")
+            desired_features = set(CLASSIFIER_FEATURES[variant_classifier]) - set("SVLEN")
+            pervariant_features[kind] = list(
+                desired_features & set(sim_data) & set(real_data)
+            )
+            logging.info(
+                "Building 'per-variant' %s classifiers for %s variants based on simulated data with features: %s",
+                variant_classifier,
+                kind,
+                ", ".join(pervariant_features[kind]),
+            )
+            classifier_vcf_metadata[f"npsv_{kind}_variant_classifier"] = [
+                f"{variant_classifier}({','.join(pervariant_features[kind])})"
+            ]
 
     # Prepare real data to write out per-variant predictions
     grouped_real_data = real_data.groupby(VAR_COL)
@@ -380,15 +396,7 @@ def genotype_vcf(
     vcf_reader = vcf.Reader(filename=input_vcf)  # Original VCF file
 
     # Add new fields to the header
-    vcf_reader.metadata["npsv_mode"] = [args.gt_mode]
-    if args.gt_mode in ("single", "hybrid"):
-        vcf_reader.metadata["npsv_single_classifier"] = [
-            f"{single_classifier}({','.join(single_features)})"
-        ]
-    if args.gt_mode in ("variant", "hybrid"):
-        vcf_reader.metadata["npsv_variant_classifier"] = [
-            f"{args.classifier}({','.join(pervariant_features)})"
-        ]
+    vcf_reader.metadata.update(classifier_vcf_metadata)
     vcf_reader.metadata["npsv_dm2"] = [f"mahal({','.join(MAHAL_FEATURES)})"]
     vcf_reader.formats["GT"] = vcf.parser._Format("GT", 1, "String", "Genotype")
     vcf_reader.formats["DM"] = vcf.parser._Format(
@@ -451,9 +459,10 @@ def genotype_vcf(
             indices = indices[0]
 
             # Construct VCF call entry
-            if args.gt_mode == "single" or (
-                args.gt_mode == "hybrid"
-                and variant.event_length >= args.hybrid_threshold
+            variant_type = record.var_subtype
+            gt_mode = getattr(args, f"{variant_type}_gt_mode")  
+            if gt_mode == "single" or (gt_mode == "hybrid"
+                and variant.event_length >= getattr(args, f"{variant_type}_hybrid_threshold")
             ):
                 call = pred_to_vcf(
                     real_group, single_pred[indices], single_prob[indices], ad=real_group[AD_COL].to_numpy().squeeze()
@@ -477,7 +486,7 @@ def genotype_vcf(
 
                     # Update the available features
                     avail_features = list(
-                        set(pervariant_features) & set(sim_group) & set(real_group)
+                        set(pervariant_features[variant_type]) & set(sim_group) & set(real_group)
                     )
 
                     # Then drop rows with na, inf, etc. from training data
@@ -508,11 +517,12 @@ def genotype_vcf(
                         pass
 
                 try:
-                    if args.classifier == "svm":
+                    variant_classifier = getattr(args, f"{variant_type}_classifier")
+                    if variant_classifier == "svm":
                         pred, prob = svm_classify(
                             sim_group, real_group, features=avail_features
                         )
-                    elif args.classifier == "rf":
+                    elif variant_classifier == "rf":
                         pred, prob = rf_classify(
                             sim_group, real_group, features=avail_features
                         )

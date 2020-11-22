@@ -59,7 +59,7 @@ def propose_variants(args, input_vcf: str, output_file):
             # Only deletions currently supported
             continue
 
-        if variant.event_length > args.hybrid_threshold:
+        if variant.event_length > args.DEL_hybrid_threshold:
             continue
 
         # TODO? Require certain overlap?

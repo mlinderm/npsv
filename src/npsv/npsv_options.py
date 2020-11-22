@@ -1,6 +1,13 @@
 import argparse, sys
 from .genotyper import GENOTYPING_MODES, CLASSIFIERS
 
+GENOTYPING_DEFAULTS = {
+    "DEL": { "gt_mode": "hybrid", "n": 100, "classifier": "rf", "hybrid_classifier": "svm", "hybrid_threshold": 1000 },
+    "INS": { "gt_mode": "single", "n": 1, "classifier": "svm", "hybrid_classifier": "svm", "hybrid_threshold": sys.maxsize },
+    "ANY": { "gt_mode": "variant", "n": 100, "classifier": "rf", "hybrid_classifier": "svm", "hybrid_threshold": sys.maxsize },
+}
+
+
 def add_random_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add arguments needed by random variant generator to parser
     
@@ -149,6 +156,8 @@ def add_data_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     return parser
 
 
+
+
 def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add arguments needed by the genotyper to parser
     
@@ -158,28 +167,39 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
     Returns:
         argparse.ArgumentParser: Parser passed as argument
     """
-    parser.add_argument(
-        "-c",
-        "--classifier",
-        help="Classifier(s) to use",
-        type=str,
-        default="svm",
-        choices=CLASSIFIERS,
-    )
-    parser.add_argument(
-        "--gt-mode",
-        dest="gt_mode",
-        help="Genotyping mode",
-        type=str,
-        default="single",
-        choices=GENOTYPING_MODES,
-    )
+    for kind in ("DEL","INS"):
+        parser.add_argument(
+            f"--{kind}-gt-mode",
+            dest=f"{kind}_gt_mode",
+            help="Genotyping mode",
+            type=str,
+            default=GENOTYPING_DEFAULTS[kind].get("gt_mode", "single"),
+            choices=GENOTYPING_MODES,
+        )
+        parser.add_argument(
+            f"--{kind}-classifier",
+            dest=f"{kind}_classifier",
+            help="Classifier(s) to use",
+            type=str,
+            default=GENOTYPING_DEFAULTS[kind].get("classifier", "svm"),
+            choices=CLASSIFIERS,
+        )
+        parser.add_argument(
+            f"--{kind}-hybrid-classifier",
+            dest=f"{kind}_hybrid_classifier",
+            help="Classifier(s) to use for 'single model' in hybrid classifier",
+            type=str,
+            default=GENOTYPING_DEFAULTS[kind].get("hybrid_classifier","svm"),
+            choices=CLASSIFIERS,
+        )
+        
     parser.add_argument(
         "--downsample",
         type=int,
         help="Number of simulated replicates per variant and zygosity in 'single model' mode",
         default=1,
     )
+    
     parser.add_argument(
         "--filter-bed",
         dest="filter_bed",
@@ -192,14 +212,7 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         action="store_true",
         default=False,
     )
-    parser.add_argument(
-        "--hybrid-classifier",
-        dest="hybrid_classifier",
-        help="Classifier(s) to use for 'single model' in hybrid classifier",
-        type=str,
-        default="svm",
-        choices=CLASSIFIERS,
-    )
+    
     # Only used testing differing number of replicates, not intended for general use
     parser.add_argument(
         "--variant-downsample",
@@ -247,11 +260,12 @@ def add_simulation_options(parser: argparse.ArgumentParser) -> argparse.Argument
 
 
 def add_hybrid_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument(
-        "--hybrid-threshold",
-        dest="hybrid_threshold",
-        help="Use 'single model' for all variants above this size",
-        type=int,
-        default=sys.maxsize,
-    )
+    for kind in ("DEL","INS"):
+        parser.add_argument(
+            f"--{kind}-hybrid-threshold",
+            dest=f"{kind}_hybrid_threshold",
+            help="Use 'single model' for all variants above this size",
+            type=int,
+            default=GENOTYPING_DEFAULTS[kind].get("hybrid_threshold", sys.maxsize),
+        )
     return parser
