@@ -414,7 +414,7 @@ def compute_coverage_with_samtools(
 
         windows_table = (
             # pylint: disable=no-member,unexpected-keyword-arg
-            bed.BedTool(pysam.bedcov(window_bed_file.name, input_bam), from_string=True)
+            bed.BedTool(pysam.bedcov(window_bed_file.name, input_bam, "--reference", args.reference), from_string=True)
             .nucleotide_content(fi=args.reference)
             .to_dataframe(
                 index_col=False,
@@ -524,6 +524,13 @@ def compute_coverage_with_goleft(args, input_bam):
         return norm_coverage_by_chrom
 
 
+def compute_mean_coverage_with_samtools(args, input_bam: str):
+    coverage = pysam.coverage("--reference", args.reference, input_bam)
+    coverage_table = pd.read_csv(io.StringIO(coverage), sep="\t")
+    bases = coverage_table["endpos"] - coverage_table["startpos"] + 1
+    return np.sum(coverage_table["meandepth"] * bases) / np.sum(bases)
+
+
 def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
     """Compute bam file stats, e.g. mean insert size, etc.
     
@@ -563,6 +570,9 @@ def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
         wgs_table = pd.read_csv(args.picard_wgs, sep="\t", comment="#", nrows=1)
         wgs_dict = wgs_table.to_dict("records")[0]
         covstats_record["coverage"] = wgs_dict["MEAN_COVERAGE"]
+    elif input_bam.endswith("cram"):
+        # goleft can't compute coverage for CRAM files, so use samtools instead
+        covstats_record["coverage"] = compute_mean_coverage_with_samtools(args, input_bam)
 
     mean_coverage = covstats_record["coverage"]
 
@@ -602,6 +612,6 @@ def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
         "gc_normalized_coverage": norm_coverage_by_gc["mean"],
         "gc_bin_count": norm_coverage_by_gc["count"],
         "gc_normalized_coverage_error": norm_coverage_by_gc.get("error", {}),
-        "hist_insert_size": covstats_record["template_hist"],
+        "hist_insert_size": covstats_record.get("template_hist", {}),
     }
     return stats

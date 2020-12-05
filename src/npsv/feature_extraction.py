@@ -115,13 +115,14 @@ class Features(object):
             print(*Features.FEATURE_COLS, sep="\t", file=out_file)
 
 
-def coverage_over_region(input_bam, region, min_mapq=40, min_baseq=15, min_anchor=11):
+def coverage_over_region(input_bam, region, reference, min_mapq=40, min_baseq=15, min_anchor=11):
     """Compute coverage over 1-indexed, closed region"""
     depth_result = pysam.depth(  # pylint: disable=no-member
         "-Q", str(min_mapq),
         "-q", str(min_baseq),
         "-l", str(min_anchor),
         "-r", region,
+        "--reference", reference,
         input_bam,
     )
     # start, end are 0-indexed half-open coordinates
@@ -281,15 +282,17 @@ def extract_features(
     if not variant.is_deletion:
         return features
 
-    coverage, _, _ = coverage_over_region(input_bam, variant.region_string(), min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor)
+    coverage, _, _ = coverage_over_region(input_bam, variant.region_string(), args.reference, min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor)
     _, left_flank_bases, left_flank_length = coverage_over_region(
         input_bam,
         variant.left_flank_region_string(args.rel_coverage_flank),
+        args.reference,
         min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
     )
     _, right_flank_bases, right_flank_length = coverage_over_region(
         input_bam,
         variant.right_flank_region_string(args.rel_coverage_flank),
+        args.reference,
         min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor
     )
 
