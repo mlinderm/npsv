@@ -86,7 +86,7 @@ npsv \
     --prefix 12_22129565_22130387_DEL.result \
     --read-length 148 --fragment-mean 573 --fragment-sd 164 --depth 25 \
     --sim-ref \
-    -DEL-n 50
+    --DEL-n 50
 ```
 
 This will produce a VCF file `tests/results/12_22129565_22130387_DEL.result.npsv.vcf` (determined by the output directory and prefix) with the genotypes, along with TSV files with the real and simulated features. The input variant is derived from the Genome-in-a-Bottle SV dataset; NPSV successfully genotypes this variant as homozygous alternate.
