@@ -39,11 +39,11 @@ def plot_features(
     logging.info("Generating plots in %s", out_dir_path)
 
     # Group the data to prepare for querying variants
-    sim_data = pd.read_table(sim_path, dtype={"#CHROM": str, "AC": int})
+    sim_data = pd.read_table(sim_path, na_values=".", dtype={"#CHROM": str, "AC": int})
     add_derived_features(sim_data)
     sim_data = sim_data.groupby(VARIANT_COL)
 
-    real_data = pd.read_table(real_path, dtype={"#CHROM": str})
+    real_data = pd.read_table(real_path, na_values=".", dtype={"#CHROM": str})
     add_derived_features(real_data)
     real_data = real_data.groupby(VARIANT_COL)
 
