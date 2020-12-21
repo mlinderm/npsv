@@ -194,7 +194,7 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
 
     # If using hybrid mode, only simulate the number of replicates needed for single model
     # for variants larger than threshold
-    if variant.event_length >= getattr(args, f"{variant.subtype}_hybrid_threshold", GENOTYPING_DEFAULTS["ANY"]["hybrid_threshold"]):
+    if getattr(args, f"{variant.subtype}_gt_mode") == "hybrid" and variant.event_length >= getattr(args, f"{variant.subtype}_hybrid_threshold", GENOTYPING_DEFAULTS["ANY"]["hybrid_threshold"]):
         replicates = args.downsample
     else:
         replicates = getattr(args, f"{variant.subtype}_n", GENOTYPING_DEFAULTS["ANY"]["n"])

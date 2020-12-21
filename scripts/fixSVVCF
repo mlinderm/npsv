@@ -29,10 +29,21 @@ def makeArgParser():
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "-r",
+        "--reference-sequence",
+        help="Reference fasta file",
+        type=str,
+        dest="reference",
+        required=True,
+    )
     return parser
 
 
 def main(args):
+    # Load the reference FASTA
+    fasta = pysam.FastaFile(args.reference)
+    
     vcf_reader = vcf.Reader(filename=args.input)
     
     vcf_reader.infos["END"] = vcf.parser._Info("END", 1, "Integer", "End position of the variant described in this record", None, None)   
@@ -72,8 +83,27 @@ def main(args):
                 record.REF = record.REF[0]
                 
 
+        if isinstance(allele, vcf.model._SV) and record.var_subtype.startswith("DUP"):
+            inserted_sequence = fasta.fetch(record.CHROM, record.POS - 1, record.sv_end)
+            
+            # Update the variant with the sequence
+            record.INFO["SVTYPE"] = "INS"
+            record.INFO["END"] = record.POS
+            record = vcf.model._Record(
+                record.CHROM,
+                record.POS,
+                record.ID,
+                inserted_sequence[0],
+                [vcf.model._Substitution(inserted_sequence)],
+                record.QUAL,
+                record.FILTER,
+                record.INFO,
+                record.FORMAT,
+                record._sample_indexes,
+                record.samples,
+            )
+            
         vcf_writer.write_record(record)
-
 
 if __name__ == "__main__":
     parser = makeArgParser()
