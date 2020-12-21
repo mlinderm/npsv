@@ -13,7 +13,7 @@ FILE_DIR = os.path.join(os.path.dirname(__file__), "data")
 class DELBreakpoints(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
-        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name)
+        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name, mapq_reads=False)
         self.input_bam = "dummy.bam"
         self.sample = Sample.from_npsv(
             os.path.join(FILE_DIR, "stats.json"), self.input_bam
@@ -107,7 +107,7 @@ class DELBreakpoints(unittest.TestCase):
 class INSBreakpoints(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
-        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name)
+        self.args = argparse.Namespace(flank=1, tempdir=self.tempdir.name, mapq_reads=False)
         self.input_bam = "dummy.bam"
         self.sample = Sample.from_npsv(
             os.path.join(FILE_DIR, "stats.json"), self.input_bam
@@ -156,7 +156,7 @@ class NPSVARealignedFragmentsTest(unittest.TestCase):
 1 2073761 . CAGCAGCCGAAGCGCCTCCTTTCAATCCAGGGTCCACACATCCAGCAGCCGAAGCGCCCTCCTTTCAATCCAGGGTCCAGGCATCT C . PASS SVTYPE=DEL;END=2073846;SVLEN=-85
 """
         )
-        self.args = argparse.Namespace(flank=3000)
+        self.args = argparse.Namespace(flank=3000, mapq_reads=False)
         self.input_fasta = os.path.join(FILE_DIR, "1_2073761_2073846_DEL.synth.fasta")
 
     def test_straddle_implementation(self):
