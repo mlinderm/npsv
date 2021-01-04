@@ -88,6 +88,36 @@ class DELFeaturesTest(unittest.TestCase):
                 alt_contig="1_2073761_2073846_DEL_alt",
             )
 
+@unittest.skipIf(not os.path.exists("/data/human_g1k_v37.fasta"), "Reference genome not available")
+class DELSpanningFeaturesTest(unittest.TestCase):
+    def setUp(self):
+        self.vcf_file = io.StringIO(
+            """##fileformat=VCFv4.1
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant described in this record">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##ALT=<ID=DEL,Description="Deletion">
+#CHROM POS ID REF ALT QUAL FILTER INFO
+1	899922	.	G	<DEL>	.	.	SVTYPE=DEL;END=899998;SVLEN=-76;ORIGINAL=HG3_Ill_SVrefine2DISCOVARDovetail_2
+"""
+        )
+        self.args = argparse.Namespace(flank=3000, min_anchor=11, default_ci=10, min_mapq=40, min_baseq=15, rel_coverage_flank=1000, count_straddle=True, min_clip=4, mapq_reads=False, reference="/data/human_g1k_v37.fasta", tempdir=tempfile.gettempdir())
+        self.input_bam = os.path.join(FILE_DIR, "1_896922_902998.bam")
+        self.sample = Sample.from_npsv(os.path.join(FILE_DIR, "stats.json"), self.input_bam)
+
+    def test_spanning_features(self):
+        for record in vcf.Reader(self.vcf_file):
+            self.assertTrue(record.is_sv)
+    
+            variant = Variant.from_pyvcf(record, self.args.reference)
+            features = extract_features(
+                self.args,
+                variant,
+                self.input_bam,
+                self.sample,
+            )
+            
+
 class PySAMFeatures(unittest.TestCase):
     def test_region_parsing(self):
         # parse_region converts region to 0-indexed half-open coordinates

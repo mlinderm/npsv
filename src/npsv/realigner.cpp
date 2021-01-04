@@ -92,7 +92,12 @@ bool AlignedFragment::IsProperPair() const {
 }
 
 int AlignedFragment::InsertSize() const {
-  return left_->FullInsertSize();
+  // The SeqLib method FullInsertSize can be incorrect when the right read has soft-clips...
+  //return left_->FullInsertSize();
+  if (left_ == &first_)
+    return second_.PositionWithSClips() + second_.Length() - first_.PositionWithSClips();
+  else
+    return first_.PositionWithSClips() + first_.Length() - second_.PositionWithSClips();
 }
 
 int32_t AlignedFragment::LeftPos1() const {
@@ -583,7 +588,7 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
     if (!fragment.IsProperPair()) continue;
 
     // Read straddles the entire event
-    if (fragment.StrictStraddles(left_region, right_region, min_overlap)) {
+    if (fragment.Straddles(left_region, right_region, min_overlap)) {
       insert_count += 1;
       
       int ref_insert_size;
@@ -622,11 +627,11 @@ std::map<std::string, double> RealignedFragments::CountPipelineStraddlers(
     if (!left_event_region.IsEmpty() && !right_event_region.IsEmpty()) {
       // Read straddles one of the breakpoints (shouldn't straddle both). This is more restrictive than SVTyper
       // which will count fragments where both reads start outside the event, but one read is anchored in the event.
-      bool ref_straddle_left = fragment.StrictStraddles(left_region, left_event_region, min_overlap);
-      bool ref_straddle_right = fragment.StrictStraddles(right_event_region, right_region, min_overlap);
+      bool ref_straddle_left = fragment.Straddles(left_region, left_event_region, min_overlap);
+      bool ref_straddle_right = fragment.Straddles(right_event_region, right_region, min_overlap);
       
-      // ref_straddle_left = ref_straddle_left && left_breakpoint_region.pos2 <= fragment.RightPos1() && fragment.RightPos1() <= right_breakpoint_region.pos1;
-      // ref_straddle_right = ref_straddle_right && left_breakpoint_region.pos2 <= fragment.LeftPos2() && fragment.LeftPos2() <= right_breakpoint_region.pos1;
+      ref_straddle_left = ref_straddle_left && left_breakpoint_region.pos2 <= fragment.RightPos1() && fragment.RightPos1() <= right_breakpoint_region.pos1;
+      ref_straddle_right = ref_straddle_right && left_breakpoint_region.pos2 <= fragment.LeftPos2() && fragment.LeftPos2() <= right_breakpoint_region.pos1;
       
       if (ref_straddle_left || ref_straddle_right) {
         pyassert(ref_straddle_left ^ ref_straddle_right, "Reads straddling both breakpoints should have been filtered out");
