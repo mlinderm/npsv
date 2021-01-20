@@ -11,3 +11,4 @@ tqdm
 ray>=1.0.0
 retry
 backports.cached-property
+intervaltree

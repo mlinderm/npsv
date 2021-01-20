@@ -264,6 +264,29 @@ def main():
         default="dm2",
         choices=["dm2", "prob"],
     )
+    parser_refine.add_argument(
+        "--exclude-orig-ref",
+        action="store_false",
+        dest="include_orig_ref",
+        default=True,
+        help="Exclude original variant's 0/0 distance in variant selection"
+    )
+    parser_refine.add_argument(
+        "--no-merge-orig-blocks",
+        action="store_false",
+        dest="merge_orig_blocks",
+        default=True,
+        help="Select alternate for each variant in isolation without regard to overlap"
+    )
+    parser_refine.add_argument(
+        "--include-orig-in-block",
+        action="store_true",
+        dest="include_orig_in_block",
+        default=False,
+        help="Include original when considering best alternate in the block"
+    )
+    
+    
 
     # Generate FASTA with consensus sequence
     parser_consensus = subparsers.add_parser(

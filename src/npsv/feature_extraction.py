@@ -117,14 +117,23 @@ class Features(object):
 
 def coverage_over_region(input_bam, region, reference, min_mapq=40, min_baseq=15, min_anchor=11):
     """Compute coverage over 1-indexed, closed region"""
-    depth_result = pysam.depth(  # pylint: disable=no-member
-        "-Q", str(min_mapq),
-        "-q", str(min_baseq),
-        "-l", str(min_anchor),
-        "-r", region,
-        "--reference", reference,
-        input_bam,
-    )
+    if reference:
+        depth_result = pysam.depth(  # pylint: disable=no-member
+            "-Q", str(min_mapq),
+            "-q", str(min_baseq),
+            "-l", str(min_anchor),
+            "-r", region,
+            "--reference", reference,
+            input_bam,
+        )
+    else:
+        depth_result = pysam.depth(  # pylint: disable=no-member
+            "-Q", str(min_mapq),
+            "-q", str(min_baseq),
+            "-l", str(min_anchor),
+            "-r", region,
+            input_bam,
+        )
     # start, end are 0-indexed half-open coordinates
     _, start, end = pysam.libcutils.parse_region(region=region)
     region_length = end - start
