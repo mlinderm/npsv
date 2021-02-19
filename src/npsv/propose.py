@@ -99,29 +99,35 @@ def propose_variants(args, input_vcf: str, output_file):
             # repeat is BED-file with half-open start
             ref_seq = variant.reference_sequence(f"{repeat[0]}:{repeat_start+1}-{repeat_end}")
 
-            consensus_seq = repeat[5]
-            scores = []
-            for i in range(0, len(ref_seq) - len(consensus_seq)):
-                matches = sum(
-                    c1 == c2
-                    for c1, c2 in zip(
-                        consensus_seq, ref_seq[i : i + len(consensus_seq)]
+            if args.all_alignments:
+                peaks = list(range(0, len(ref_seq)))
+            else:
+                consensus_seq = repeat[5]
+                scores = []
+                for i in range(0, len(ref_seq) - len(consensus_seq)):
+                    matches = sum(
+                        c1 == c2
+                        for c1, c2 in zip(
+                            consensus_seq, ref_seq[i : i + len(consensus_seq)]
+                        )
                     )
+                    scores.append(matches)
+
+                peaks, properties = find_peaks(
+                    scores, width=1, distance=consensus_length * 0.8
                 )
-                scores.append(matches)
 
-            peaks, properties = find_peaks(
-                scores, width=1, distance=consensus_length * 0.8
-            )
-
-            # Enforce maximum number of potential alternate variants by selecting most prominent
-            peaks = peaks[np.argsort(properties["prominences"])[: args.max_proposals]]
+                # Enforce maximum number of potential alternate variants by selecting most prominent
+                peaks = peaks[np.argsort(properties["prominences"])[: args.max_proposals]]
 
             # Generate alternate records
             for peak in peaks:
                 # TODO: Realign allele sequence to get better end coordinate?
                 alt_pos = peak + repeat_start  # 1-indexed base immediately before event
-                alt_end = peak + repeat_start + event_repeat_count * consensus_length
+                if args.all_alignments:
+                    alt_end = peak + repeat_start + variant.event_length
+                else:
+                    alt_end = peak + repeat_start + event_repeat_count * consensus_length
                 if alt_pos == variant.pos and alt_end == variant.end:
                     continue  # Already have representation of this variant
 
@@ -345,3 +351,47 @@ def refine_variants(args, input_vcf: str, output_file):
                 record.samples[i] = best_call
 
             vcf_writer.write_record(record)
+
+
+def _min_dm2(record):
+    best_score = float("Inf")
+    for call in record.samples:
+        if call.data.DM is not None:
+            min_dist_idx = np.argmin(call.data.DM)
+            min_dist = call.data.DM[min_dist_idx]
+            if min_dist_idx == 0 or min_dist >= best_score:
+                continue
+            best_score = min_dist
+    return best_score
+
+
+def filter_alt_variants(args, input_vcf: str, output_file):
+    vcf_reader = vcf.Reader(filename=input_vcf)
+    vcf_writer = vcf.Writer(args.output, vcf_reader)
+
+    original_records = {}
+    alternate_records = {}
+
+    for record in vcf_reader:
+        if ORIGINAL_KEY not in record.INFO:
+            assert record.ID not in original_records, "Duplicate original variants"
+            original_records[record.ID] = record
+        else:
+            originals = record.INFO[ORIGINAL_KEY]
+            for original in originals:
+                if original in alternate_records:
+                    alternate_records[original].append(record)
+                else:
+                    alternate_records[original] = [record]
+
+    for id, record in original_records.items():
+        vcf_writer.write_record(record)
+        
+        alts = alternate_records.get(id, [])
+        if args.select == "dm2":
+            alts = sorted(alts, key=_min_dm2)
+        else:
+            continue
+
+        for alt_record in alts[:args.max_proposals]:
+            vcf_writer.write_record(alt_record)
