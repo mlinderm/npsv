@@ -215,6 +215,9 @@ def main():
     parser_preproc.add_argument(
         "--picard-wgs", type=str, help="Path to Picard wgs metrics", dest="picard_wgs"
     )
+    parser_preproc.add_argument(
+        "--gc-window-size", help="Window size for computing GC content", default=1000
+    )
 
     # Propose alternate representations
     parser_propose = subparsers.add_parser(
@@ -241,6 +244,13 @@ def main():
     )
     npsv_options.add_propose_options(parser_propose)
     npsv_options.add_hybrid_options(parser_propose)
+    parser_propose.add_argument(
+        "--all-alignments",
+        action="store_true",
+        dest="all_alignments",
+        default=False,
+        help="Generate all possible alignments of variant in repeitive region"
+    )
 
     # Select among proposed alternate representations
     parser_refine = subparsers.add_parser(
@@ -395,7 +405,35 @@ def main():
     )
     npsv_options.add_simulation_options(parser_gnomadcovg)
 
-
+    # Filter proposed alternate representations
+    parser_filter = subparsers.add_parser(
+        "filter", help="Filter proposed alternate representations"
+    )
+    parser_filter.add_argument(
+        "-i", "--input", help="Input VCF file.", type=str, dest="input", required=True
+    )
+    parser_filter.add_argument(
+        "-o",
+        "--output",
+        action="store",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+    parser_filter.add_argument(
+        "--select",
+        help="Selection method during variant refinement",
+        type=str,
+        default="dm2",
+        choices=["dm2", "prob"],
+    )
+    parser_filter.add_argument(
+        "--max-proposals",
+        dest="max_proposals",
+        help="Max number of alternate variants to propose for each variant",
+        type=int,
+        default=10,
+    )
 
 
     args = parser.parse_args()
@@ -475,6 +513,11 @@ def main():
         from .simulation import filter_reads_gnomad
 
         filter_reads_gnomad(args, args.covg_path, args.input, "/dev/stdout")
+
+    elif args.command == "filter":
+        from .propose import filter_alt_variants
+
+        filter_alt_variants(args, args.input, args.output)
 
 
 if __name__ == "__main__":

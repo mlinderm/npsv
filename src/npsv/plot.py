@@ -15,12 +15,19 @@ from npsv.genotyper import add_derived_features, filter_by_zscore
 
 FEATURE_COL = Features.FEATURES
 VARIANT_COL = ["#CHROM", "START", "END", "TYPE"]
+MIN_READ_AXIS = 10
 
 def plot_hist(data, col, colors, ax):
     sns.distplot(data.loc[data["AC"] == "REF",col], kde=False, color=colors[0], ax=ax)
     sns.distplot(data.loc[data["AC"] == "HET",col], kde=False, color=colors[1], ax=ax)
     sns.distplot(data.loc[data["AC"] == "HOM",col], kde=False, color=colors[2], ax=ax)
     ax.axvline(data.loc[data["AC"] == "Act",col].values[0], 0, 1, color=colors[3])
+
+def _set_axis_limits(ax):
+    _, right = ax.get_xlim()
+    ax.set_xlim(right=max(right, MIN_READ_AXIS))
+    _, top = ax.get_ylim()
+    ax.set_ylim(top=max(top, MIN_READ_AXIS))
 
 def plot_features(
     args, sim_path: str, real_path: str, vcf_path: str, out_dir_path: str
@@ -93,19 +100,25 @@ def plot_features(
         fig, ((ax11, ax12, ax13, ax14), (ax21, ax22, ax23, ax24)) = plt.subplots(2, 4, figsize=(14, 8))
         
         sns.scatterplot(ax=ax11, x="REF_READ", y="ALT_READ", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        _set_axis_limits(ax11)
         sns.scatterplot(ax=ax12, x="REF_WEIGHTED_SPAN", y="ALT_WEIGHTED_SPAN", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
+        _set_axis_limits(ax12)
         sns.scatterplot(ax=ax13, x="INSERT_LOWER", y="INSERT_UPPER", data=plot_data, hue="AC", style="AC", markers=markers, palette=colors)
         plot_hist(ax=ax14, col="CLIP_PRIMARY", data=plot_data, colors=colors)
-
+        
         plot_hist(ax=ax21, col="COVERAGE", data=plot_data, colors=colors)
         plot_hist(ax=ax22, col="DHFC", data=plot_data, colors=colors)
         plot_hist(ax=ax23, col="DHBFC", data=plot_data, colors=colors)
         plot_hist(ax=ax24, col="DHFFC", data=plot_data, colors=colors)
+
+        # Make plots square
+        for ax in fig.get_axes():
+            ax.set_aspect(1.0/ax.get_data_ratio(), adjustable='box')
 
         fig.suptitle("{}:{}-{}".format(*variant), size=16)
         fig.subplots_adjust(top=0.95, wspace=0.3, hspace=0.3)
 
         # Save plot to file name based on variant descriptor
         description = variant_descriptor(record)
-        logging.info("Plotting variant into %s.png", description)
-        plt.savefig(os.path.join(out_dir_path, f"{description}.png"))
+        logging.info("Plotting variant into %s.pdf", description)
+        plt.savefig(os.path.join(out_dir_path, f"{description}.pdf"))

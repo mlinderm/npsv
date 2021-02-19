@@ -395,7 +395,7 @@ def samtools_norm_coverage_group(table, mean_coverage):
 
 
 def compute_coverage_with_samtools(
-    args, input_bam, mean_coverage, gc_window_size=20000
+    args, input_bam, mean_coverage
 ):
     # Generate GC and chromosome normalized coverage for the entire BAM file
     # Based on https://www.biostars.org/p/92744/
@@ -409,7 +409,7 @@ def compute_coverage_with_samtools(
     ) as window_bed_file:
         # pylint: disable=unexpected-keyword-arg
         windows_bed = bed.BedTool().window_maker(
-            g=args.genome, w=gc_window_size, output=window_bed_file.name
+            g=args.genome, w=args.gc_window_size, output=window_bed_file.name
         )
 
         windows_table = (
@@ -531,14 +531,13 @@ def compute_mean_coverage_with_samtools(args, input_bam: str):
     return np.sum(coverage_table["meandepth"] * bases) / np.sum(bases)
 
 
-def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
+def compute_bam_stats(args, input_bam: str):
     """Compute bam file stats, e.g. mean insert size, etc.
     
     Args:
         args ([type]): Arguments
         input_bam (str): Path to BAM file
-        gc_window_size (int, optional): Window size for computing GC content. Defaults to 20000.
-    
+        
     Returns:
         dict: Stats (suitable for writing as JSON file)
     """
@@ -597,7 +596,7 @@ def compute_bam_stats(args, input_bam: str, gc_window_size=20000):
     else:
         # "Slow" path. Compute chromosomal coverage and GC bias with bedtools/samtools
         norm_coverage_by_chrom, norm_coverage_by_gc = compute_coverage_with_samtools(
-            args, input_bam, mean_coverage, gc_window_size=gc_window_size
+            args, input_bam, mean_coverage
         )
 
     # Construct stats dictionary that can be written to JSON

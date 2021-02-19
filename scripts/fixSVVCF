@@ -3,6 +3,12 @@ import argparse, logging, os, re, sys
 import pysam
 import vcf
 
+def _flatten(scalar_or_list):
+    if isinstance(scalar_or_list, list):
+        return scalar_or_list[0]
+    else:
+        return scalar_or_list
+
 
 def makeArgParser():
     """
@@ -36,6 +42,12 @@ def makeArgParser():
         type=str,
         dest="reference",
         required=True,
+    )
+    parser.add_argument(
+        "--alt-field",
+        help="Set alt from this INFO field (used for insertions)",
+        type=str,
+        default=None
     )
     return parser
 
@@ -102,7 +114,27 @@ def main(args):
                 record._sample_indexes,
                 record.samples,
             )
-            
+
+        if args.alt_field is not None and isinstance(allele, vcf.model._SV) and record.var_subtype.startswith("INS") and args.alt_field in record.INFO:
+            svlen = _flatten(record.INFO["SVLEN"])
+            inserted_sequence = record.INFO[args.alt_field]
+            if len(inserted_sequence) != svlen or record.POS != record.INFO["END"]:
+                continue
+           
+            record = vcf.model._Record(
+                record.CHROM,
+                record.POS,
+                record.ID,
+                record.REF,
+                [vcf.model._Substitution(record.REF + inserted_sequence.upper())],
+                record.QUAL,
+                record.FILTER,
+                record.INFO,
+                record.FORMAT,
+                record._sample_indexes,
+                record.samples,
+            )
+
         vcf_writer.write_record(record)
 
 if __name__ == "__main__":
