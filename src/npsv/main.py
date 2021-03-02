@@ -199,8 +199,8 @@ def simulate_and_extract(args, sample, variant, variant_vcf_path, description):
     else:
         replicates = getattr(args, f"{variant.subtype}_n", GENOTYPING_DEFAULTS["ANY"]["n"])
 
-    sim_out_file = open(os.path.join(args.output, description + ".sim.tsv"), "w")
-    real_out_file = open(os.path.join(args.output, description + ".real.tsv"), "w")
+    sim_out_file = open(os.path.join(args.tempdir, description + ".sim.tsv"), "w")
+    real_out_file = open(os.path.join(args.tempdir, description + ".real.tsv"), "w")
 
     # Extract features from randomly sampled variants as null model
     # TODO: Integrate duplications into random variant generation
@@ -430,6 +430,12 @@ def main():
             "Library information needed. Either provide distribution parameters or run `npsvg preprocess` to generate stats file."
         )
 
+    # Select directory for variant files
+    if args.keep_synth_bams:
+        variant_dir = args.output
+    else:
+        variant_dir = args.tempdir
+
     # For each variant generate synthetic bam file(s) and extract relevant evidence
     observed_variants = {}
     record_results = []
@@ -447,7 +453,7 @@ def main():
             continue
 
         # Construct single variant VCF outside of worker so we don't need to pass the reader into the thread
-        variant_vcf_path = os.path.join(args.output, description + ".vcf")
+        variant_vcf_path = os.path.join(variant_dir, description + ".vcf")
         if not args.reuse or not os.path.exists(variant_vcf_path + ".gz"):
             variant_vcf_path = write_record_to_indexed_vcf(
                 record, vcf_reader, variant_vcf_path

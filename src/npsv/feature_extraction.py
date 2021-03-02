@@ -287,9 +287,10 @@ def extract_features(
 
     # Coverage Evidence
 
-    # Coverage currently only relevant for deletion events
-    if not variant.is_deletion:
+    # Coverage currently only relevant for deletion and duplication events
+    if variant.is_insertion:
         return features
+    assert variant.is_deletion or variant.is_duplication, "Coverage features only supported for DEL/DUP variants"
 
     coverage, _, _ = coverage_over_region(input_bam, variant.region_string(), args.reference, min_mapq=args.min_mapq, min_baseq=args.min_baseq, min_anchor=args.min_anchor)
     _, left_flank_bases, left_flank_length = coverage_over_region(

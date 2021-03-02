@@ -3,8 +3,9 @@ from .genotyper import GENOTYPING_MODES, CLASSIFIERS
 
 GENOTYPING_DEFAULTS = {
     "DEL": { "gt_mode": "hybrid", "n": 100, "classifier": "rf", "hybrid_classifier": "svm", "hybrid_threshold": 1000 },
-    "INS": { "gt_mode": "single", "n": 1, "classifier": "svm", "hybrid_classifier": "svm", "hybrid_threshold": sys.maxsize },
-    "ANY": { "gt_mode": "variant", "n": 100, "classifier": "rf", "hybrid_classifier": "svm", "hybrid_threshold": sys.maxsize },
+    "INS": { "gt_mode": "single", "n": 1, "classifier": "svm", "hybrid_classifier": "svm", "hybrid_threshold": 1000 },
+    "DUP": { "gt_mode": "single", "n": 1, "classifier": "svm", "hybrid_classifier": "svm", "hybrid_threshold": 1000 },
+    "ANY": { "gt_mode": "variant", "n": 100, "classifier": "rf", "hybrid_classifier": "svm", "hybrid_threshold": 1000 },
 }
 
 
@@ -221,6 +222,63 @@ def add_genotyping_options(parser: argparse.ArgumentParser) -> argparse.Argument
         type=int,
         default=None,
     )
+
+    # Trigger parameter search during model fit
+    parser.add_argument(
+        "--param-search",
+        dest="param_search",
+        help=argparse.SUPPRESS,
+        action="store_true",
+        default=False
+    )
+
+    # SVM Parameters (to facilitate parameter search when building per-variant model)
+    parser.add_argument(
+        "--svm-C",
+        dest="svm_C",
+        help=argparse.SUPPRESS,
+        type=float,
+        default=1.0
+    )
+    parser.add_argument(
+        "--svm-gamma",
+        dest="svm_gamma",
+        help=argparse.SUPPRESS,
+        default="scale"
+    )
+
+    # Random Forest parameters (to facilitate parameter search when building per-variant model)
+    parser.add_argument(
+        "--rf-n-estimators",
+        dest="rf_n_estimators",
+        help=argparse.SUPPRESS,
+        type=int,
+        default=100
+    )
+    parser.add_argument(
+        "--rf-max-depth",
+        dest="rf_max_depth",
+        help=argparse.SUPPRESS,
+        type=int,
+        default=None
+    )
+
+    # Logistic Regression parameters (to facilitate parameter search when building per-variant model)
+    parser.add_argument(
+        "--lr-penalty",
+        dest="lr_penalty",
+        help=argparse.SUPPRESS,
+        type=str,
+        default="l2"
+    )
+    parser.add_argument(
+        "--lr-C",
+        dest="lr_C",
+        help=argparse.SUPPRESS,
+        type=float,
+        default=1.0
+    )
+
     return parser
 
 

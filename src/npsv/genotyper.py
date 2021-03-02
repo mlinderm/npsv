@@ -11,6 +11,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
 from scipy.special import logsumexp
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.covariance import MinCovDet
@@ -19,6 +20,7 @@ from scipy.stats import binom, chi2, zscore
 from sklearn.metrics import accuracy_score
 from scipy.special import comb
 from tqdm import tqdm
+import xgboost as xgb
 
 from .variant import Variant, variant_descriptor, overwrite_reader_samples
 from .feature_extraction import Features
@@ -29,7 +31,7 @@ if logging.getLogger(__name__).getEffectiveLevel() != logging.DEBUG:
     warnings.simplefilter(action="ignore", category=UserWarning)
 
 GENOTYPING_MODES = ["single", "variant", "hybrid"]
-CLASSIFIERS = ["svm", "rf"]
+CLASSIFIERS = ["svm", "rf", "logistic", "xgboost"]
 
 VAR_COL = ["#CHROM", "START", "END", "TYPE", "SAMPLE"]
 FEATURE_COL = Features.FEATURES
@@ -78,6 +80,30 @@ CLASSIFIER_FEATURES = {
         "PROB_HOMALT",
         "CLIP_PRIMARY",
     ],
+    "logistic": [
+        "SVLEN",
+        "ALT_READ_REL",
+        "ALT_WEIGHTED_SPAN_REL",
+        "INSERT_LOWER",
+        "INSERT_UPPER",
+        "DHFFC",
+        "PROB_HOMREF",
+        "PROB_HET",
+        "PROB_HOMALT",
+        "CLIP_PRIMARY",
+    ],
+    "xgboost": [
+        "SVLEN",
+        "ALT_READ_REL",
+        "ALT_WEIGHTED_SPAN_REL",
+        "INSERT_LOWER",
+        "INSERT_UPPER",
+        "DHFFC",
+        "PROB_HOMREF",
+        "PROB_HET",
+        "PROB_HOMALT",
+        "CLIP_PRIMARY",
+    ],
 }
 
 
@@ -95,6 +121,17 @@ VCF_COLUMN_HEADERS = [
 VCF_FORMAT = "GT:AD:PL:DM"
 AC_TO_GT = ("0/0", "0/1", "1/1")
 
+SVM_PARAM_GRID = [
+    {"C": [1, 10, 100, 500, 1000, 5000, 10000], "gamma": ["scale", 0.001, 0.0055, .01, .055, 0.1, 0.55], "kernel": ['rbf']},
+]
+
+RF_PARAM_GRID = [
+    {"n_estimators": [50, 100, 500, 1000], "max_depth": [None, 3, 5, 10], "min_samples_leaf": [1, 3, 5], "min_samples_split": [2, 5, 10]}
+]
+
+LOGISTIC_PARAM_GRID = [
+    {"penalty": ["l2"], "C": [0.001, 0.01, 0.1, 1, 10, 100, 1000] }
+]
 
 def variant_to_string(variant):
     return "{0}:{1}-{2} {3} in {4}".format(*variant)
@@ -133,13 +170,21 @@ def pred_to_vcf(real_data, pred, prob=None, dm2=None, ad=None) -> str:
     )
 
 
-def rf_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
+def rf_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL, param_search=False, threads=1, n_estimators=100, **kwargs):
     x = sim_data[features]
     y = sim_data[klass]
 
     # Fit the model
-    clf = RandomForestClassifier(n_estimators=100, max_features="auto", max_depth=None)
+    clf = RandomForestClassifier(n_estimators=n_estimators, max_features="auto", **kwargs)
+    
+    if param_search:
+        # Grid-search to find the best parameters
+        clf = GridSearchCV(clf, param_grid=RF_PARAM_GRID, cv=5, n_jobs=threads)
+    
     clf = clf.fit(x, y)
+
+    if param_search:
+        logging.info("Best RF params: %s", clf.best_params_)
 
     # Predict the real data
     real_x = real_data[features]
@@ -148,7 +193,7 @@ def rf_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     return (pred, prob)
 
 
-def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
+def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL, param_search=False, gamma="scale", threads=1, **kwargs):
     x = sim_data[features]
     y = sim_data[klass]
 
@@ -157,10 +202,19 @@ def svm_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL):
     x = scaler.fit_transform(x)
 
     # Build the model
-    clf = SVC(kernel="rbf", probability=True)
+    if gamma != "scale" and gamma != "auto":
+        gamma = float(gamma)
+    clf = SVC(kernel="rbf", probability=True, gamma=gamma, **kwargs)
+
+    if param_search:
+        # Grid-search to find the best parameters
+        clf = GridSearchCV(clf, param_grid=SVM_PARAM_GRID, cv=5, n_jobs=threads)
 
     # Fit the model
     clf.fit(x, y)
+    
+    if param_search:
+        logging.info("Best SVM params: %s", clf.best_params_)
 
     # Predict the real data
     real_x = scaler.transform(real_data[features])
@@ -194,6 +248,51 @@ def single_mahalanobis(sim_data, real_data, features=FEATURE_COL, klass=KLASS_CO
             prob = np.exp(prob - logsumexp(prob))
 
         return (pred, prob, score)
+
+
+def logistic_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL, param_search=False, threads=1, **kwargs):
+    x = sim_data[features]
+    y = sim_data[klass]
+
+    # Normalize the training set
+    scaler = StandardScaler()
+    x = scaler.fit_transform(x)
+  
+    # Build the model
+    clf = LogisticRegression(**kwargs)
+
+    if param_search:
+        # Grid-search to find the best parameters
+        clf = GridSearchCV(clf, param_grid=LOGISTIC_PARAM_GRID, cv=5, n_jobs=threads)
+
+    # Fit the model
+    clf.fit(x, y)
+    
+    if param_search:
+        logging.info("Best Logistic params: %s", clf.best_params_)
+
+    # Predict the real data
+    real_x = scaler.transform(real_data[features])
+    pred = clf.predict(real_x)
+    prob = clf.predict_proba(real_x)
+    return (pred, prob)
+
+
+def xgboost_classify(sim_data, real_data, features=FEATURE_COL, klass=KLASS_COL, param_search=False, threads=1, **kwargs):
+    x = sim_data[features]
+    y = sim_data[klass]
+  
+    # Build the model
+    clf = xgb.XGBClassifier(n_estimators=100, n_jobs=threads, **kwargs)
+
+    # Fit the model
+    clf.fit(x, y)
+
+    # Predict the real data
+    real_x = real_data[features]
+    pred = clf.predict(real_x)
+    prob = clf.predict_proba(real_x)
+    return (pred, prob)
 
 
 def add_derived_features(data):
@@ -286,8 +385,8 @@ def genotype_vcf(
         typed_sim_data = sim_data.groupby(TYPE_COL)
         typed_real_data = real_data.groupby(TYPE_COL)
         for variant_type, sim_group in typed_sim_data:
-            if getattr(args, f"{variant_type}_gt_mode") == "single":
-                single_classifier = getattr(args, f"{variant_type}_classifier")
+            if getattr(args, f"{variant_type}_gt_mode", "single") == "single":
+                single_classifier = getattr(args, f"{variant_type}_classifier", "rf")
             else:
                 single_classifier = getattr(args, f"{variant_type}_hybrid_classifier")
 
@@ -324,11 +423,19 @@ def genotype_vcf(
             ]
             if single_classifier == "svm":
                 pred, prob = svm_classify(
-                    sim_group, real_group, features=single_features
+                    sim_group, real_group, features=single_features, param_search=args.param_search, threads=args.threads, gamma=args.svm_gamma, C=args.svm_C,
                 )
             elif single_classifier == "rf":
                 pred, prob = rf_classify(
-                    sim_group, real_group, features=single_features
+                    sim_group, real_group, features=single_features, param_search=args.param_search, threads=args.threads, n_estimators=args.rf_n_estimators, max_depth=args.rf_max_depth,
+                )
+            elif single_classifier == "logistic":
+                pred, prob = logistic_classify(
+                    sim_group, real_group, features=single_features, param_search=args.param_search, threads=args.threads, penalty=args.lr_penalty, C=args.lr_C,
+                )
+            elif single_classifier == "xgboost":
+                pred, prob = xgboost_classify(
+                    sim_group, real_group, features=single_features, param_search=args.param_search, threads=args.threads,
                 )
 
             # Reconstruct original vectors
@@ -337,7 +444,7 @@ def genotype_vcf(
             if prob.shape[1] == 3:
                 single_prob[indices] = prob
 
-        # Report accuracy is actual class is defined
+        # Report accuracy if actual class is defined
         if logging.getLogger().isEnabledFor(logging.DEBUG) and KLASS_COL in real_data:
             logging.debug(
                 "Accuracy compared to reported %s in 'real' data: %f",
@@ -374,7 +481,8 @@ def genotype_vcf(
             if getattr(args, f"{kind}_gt_mode") not in ("variant", "hybrid"):
                 continue
             variant_classifier = getattr(args, f"{kind}_classifier")
-            desired_features = set(CLASSIFIER_FEATURES[variant_classifier]) - set("SVLEN")
+            #desired_features = set(CLASSIFIER_FEATURES[variant_classifier]) - set(("SVLEN",))
+            desired_features = set(CLASSIFIER_FEATURES[variant_classifier])
             pervariant_features[kind] = list(
                 desired_features & set(sim_data) & set(real_data)
             )
@@ -520,11 +628,19 @@ def genotype_vcf(
                     variant_classifier = getattr(args, f"{variant_type}_classifier")
                     if variant_classifier == "svm":
                         pred, prob = svm_classify(
-                            sim_group, real_group, features=avail_features
+                            sim_group, real_group, features=avail_features, gamma=args.svm_gamma, C=args.svm_C,
                         )
                     elif variant_classifier == "rf":
                         pred, prob = rf_classify(
-                            sim_group, real_group, features=avail_features
+                            sim_group, real_group, features=avail_features, n_estimators=args.rf_n_estimators, max_depth=args.rf_max_depth,
+                        )
+                    elif variant_classifier == "logistic":
+                        pred, prob = logistic_classify(
+                            sim_group, real_group, features=avail_features, penalty=args.lr_penalty, C=args.lr_C,
+                        )
+                    elif variant_classifier == "xgboost":
+                        pred, prob = xgboost_classify(
+                            sim_group, real_group, features=avail_features,
                         )
                     call = pred_to_vcf(
                         real_group, pred.item(0), prob[0,], dm2=mahal_score, ad=real_group[AD_COL].to_numpy().squeeze()

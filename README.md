@@ -1,6 +1,6 @@
 # NPSV: Non-parametric Structural Variant Genotyper
 
-NPSV is Python-based tool for standalone genotyping of deletion and insertion structural variants (SVs) in short-read whole genome sequencing (WGS) data. NPSV implements a machine learning-based approach for SV genotyping that employs NGS simulation to model the combined effects of the genomic region, sequencer and alignment pipeline. 
+NPSV is a Python-based tool for stand-alone genotyping of previously detected/reported deletion and insertion structural variants (SVs) in short-read whole genome sequencing (WGS) data. NPSV implements a machine learning-based approach for SV genotyping that employs NGS simulation to model the combined effects of the genomic region, sequencer and alignment pipeline. 
 
 ## Installation
 
@@ -33,7 +33,7 @@ python3 setup.py install
 
 ## Running NPSV
 
-NPSV requires basic information about the aligned reads (i.e. coverage, insert size distribution). These data can be provided as a command line parameters enabling you to immediately start genotyping. An optional preprocessing step (the typical workflow) will collect that data and more from the BAM file (to inform both simulation and feature extraction) into a stats file that can be used with the genotyper.
+NPSV requires basic information about the aligned reads (i.e. sequencer model, coverage, insert size distribution). These data can be provided as a command line parameters enabling you to immediately start genotyping. An optional preprocessing step (the typical workflow) will collect that data and more from the BAM file (to inform both simulation and feature extraction) into a stats file that can be used with the genotyper.
 
 ### Running the NPSV tools with Docker
 
@@ -66,7 +66,7 @@ samtools faidx human_g1k_v37.fasta
 
 ### Basic Workflow
 
-The minimal NPSV workflow requires the aligned reads, the putative SV(s) as a VCF file and basic sequencing statistics (the read length, the mean and SD of the insert size, and depth). A minimal example follows.
+The minimal NPSV workflow requires the aligned reads, the putative SV(s) as a VCF file and basic sequencing statistics (the sequencer model, read length, the mean and SD of the insert size, and depth). A minimal example follows.
 
 *Creating the simulated replicates is more efficient when the BWA indices are loaded into shared memory prior to running NPSV (and thus doesn't need to re-loaded for each replicate). To load the BWA indices into shared memory:*
 ```
@@ -84,14 +84,22 @@ npsv \
     -b tests/data/12_22125565_22134387.bam \
     -o tests/results \
     --prefix 12_22129565_22130387_DEL.result \
-    --read-length 148 --fragment-mean 573 --fragment-sd 164 --depth 25 \
+    --read-length 148 --fragment-mean 573 --fragment-sd 164 --depth 25 --profile HS25 \
     --sim-ref \
     --DEL-n 50
 ```
 
 This will produce a VCF file `tests/results/12_22129565_22130387_DEL.result.npsv.vcf` (determined by the output directory and prefix) with the genotypes, along with TSV files with the real and simulated features. The input variant is derived from the Genome-in-a-Bottle SV dataset; NPSV successfully genotypes this variant as homozygous alternate.
 
-By default, NPSV uses "hybrid" mode for deletions (i.e., build per-variant classifiers trained on multiple simulated replicates of each zygosity for smaller variants and a single classifier for larger variants) and "single" mode for insertions (i.e., build just a single classifier using 1 replicate per variant per zygosity as the training data). Since this variant is a deletion < 1 kbp in length, NPSV will create a variant-specific classifier trained. The genotyping mode (single, variant, hybrid), classifier type, replicates, and threshold for choosing between per-variant and single classifiers in hybrid mode, are configurable for each variant type. To speed up this example we reduced the number of replicates to 50 (`--DEL-n 50`) from a default of 100.
+By default, NPSV uses "hybrid" mode for deletions (i.e., build per-variant classifiers trained on multiple simulated replicates of each zygosity for smaller variants and a single classifier for larger variants) and "single" mode for insertions (i.e., build just a single classifier using 1 replicate per variant per zygosity as the training data). Since this variant is a deletion < 1 kbp in length, NPSV will create a variant-specific classifier. The genotyping mode (single, variant, hybrid), classifier type, replicates, and threshold for choosing between per-variant and single classifiers in hybrid mode, are configurable for each variant type. To speed up this example we reduced the number of replicates to 50 (`--DEL-n 50`) from the default of 100.
+
+The `--profile` argument specifies the sequencer model and thus the profile to use with the [ART NGS simulator](https://www.niehs.nih.gov/research/resources/software/biostatistics/art/index.cfm). Currently available profiles in ART are:
+```
+GA1 - GenomeAnalyzer I (36bp,44bp), GA2 - GenomeAnalyzer II (50bp, 75bp)
+HS10 - HiSeq 1000 (100bp),          HS20 - HiSeq 2000 (100bp),      HS25 - HiSeq 2500 (125bp, 150bp)
+HSXn - HiSeqX PCR free (150bp),     HSXt - HiSeqX TruSeq (150bp),   MinS - MiniSeq TruSeq (50bp)
+MSv1 - MiSeq v1 (250bp),            MSv3 - MiSeq v3 (250bp),        NS50 - NextSeq500 v2 (75bp)
+```
 
 The `--sim-ref` argument is used here because the test data (`-b`) only includes a small set of the data. By default `npsv` samples random size-matched SVs from the genome to serve as the "null model" with homozygous reference genotypes, but that requires sequencing data from the whole genome. `--sim-ref` will use simulation to generate homozygous reference data.
 
@@ -122,12 +130,30 @@ npsv \
     -b tests/data/12_22125565_22134387.bam \
     -o tests/results \
     --prefix 12_22129565_22130387_DEL.result \
-    --stats-path tests/data/stats.json \
+    --stats-path tests/data/stats.json --profile HS25 \
     --sim-ref \
     --DEL-n 50
 ```
 
+If the Picard metrics are not available, the `preprocess` sub-command can compute the necessary metrics directly, e.g. with the following command. Note that since this BAM file only includes reads in a small region on chromosome 12, the results for this example command will not be meaningful.
+
+```
+npsvg preprocess \
+    -r /data/human_g1k_v37.fasta \
+    --genome etc/human_g1k_v37.genome \
+    -b tests/data/12_22125565_22134387.bam \
+    -o tests/results/stats.json
+```
+
+### "End-to-end" example
+
+The `paper` directory includes an `example.sh` script that downloads the HG002 short-read sequencing data and the GIAB SV calls, aligns the reads with BWA and then genotypes those SVs with NPSV using a representative workflow. The `benchmark.sh` script genotypes the GIAB SVs in previously aligned HG002 NGS data with NPSV along with a set of other SV genotypers. 
+
+Aspects of both scripts are specific to the local computing infrastructure (e.g., directory paths, number of cores, executable paths) and so will need to be modified prior to use. Both scripts assume you have a customized version of [Truvari](https://github.com/mlinderm/truvari/tree/genotype_stats) installed.
+
 ## Proposing alternate SV representations
+
+NPSV includes experimental support for automatically identifying "better" SV representations during genotyping using the simulated data. This workflow is implemented with a pre-processing step that generates possible alternate SV representations and a post-processing step that updates the genotype for the original SV from the alternate SV whose simulated data is most similar to the real data.
 
 ### Prerequisites
 
@@ -161,7 +187,7 @@ npsv \
     --gaps etc/human_g1k_v37.gaps.bed.gz \
     -i tests/results/1_1865644_1866241_DEL.propose.vcf \
     -b tests/data/1_1861644_1871561.bam \
-    --stats-path tests/data/stats.json \
+    --stats-path tests/data/stats.json --profile HS25 \
     -o tests/results \
     --prefix 1_1865644_1866241_DEL.propose \
     --sim-ref \
