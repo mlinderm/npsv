@@ -40,10 +40,10 @@ bwa mem -c 250 -M -v 1 -t 31 \
 samtools index $ALIGN_FILE
 
 ## Download GIAB variants, BED files and filter callset
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz.tbi
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.bed
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1plusTier2_v0.6.1.bed
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz.tbi
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.bed
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1plusTier2_v0.6.1.bed
 
 GIAB_VCF=HG002_SVs_Tier1_v0.6.vcf.gz
 GIAB_BED=HG002_SVs_Tier1_v0.6.bed

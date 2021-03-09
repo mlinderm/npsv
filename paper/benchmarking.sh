@@ -15,7 +15,7 @@ set -euo pipefail
 
 # Metadata
 THREADS=$SLURM_CPUS_PER_TASK
-TIME_FORMAT="%E,%M,${THREADS},${SLURM_JOB_ID}"
+TIME_FORMAT="%E,%M,%U,%S,${THREADS},${SLURM_JOB_ID}"
 OUTPUT_DIR=
 
 # Data paths

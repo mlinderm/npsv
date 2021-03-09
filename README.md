@@ -135,7 +135,7 @@ npsv \
     --DEL-n 50
 ```
 
-If the Picard metrics are not available, the `preprocess` sub-command can compute the necessary metrics directly, e.g. with the following command. Note that since this BAM file only includes reads in a small region on chromosome 12, the results for this example command will not be meaningful.
+If the Picard metrics are not available, the `preprocess` sub-command can compute the necessary metrics directly, e.g. with the following command. Note that since this example BAM file only includes reads in a small region on chromosome 12, the results for this example command will not be meaningful.
 
 ```
 npsvg preprocess \
@@ -219,3 +219,7 @@ Note that due to the random simulations the distances will differ between runs.
 ### Parallelization
 
 `npsv` can simulate and extract variant evidence in parallel (controlled via the `--threads` option), before performing the genotyping in serial.  In "variant" mode, each variant can be genotyped independently. When employing that genotyping mode, a typical approach is to partition the input VCF file into chunks that are analyzed concurrently.
+
+### Data Availability
+
+The `example.sh` script in `paper` directory includes an example of downloading and preparing both the HG002 short-read sequencing data and the GIAB SV calls for use with the NPSV genotyper. Similar NGS data is available for the parental [HG003](ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG003_NA24149_father/NIST_HiSeq_HG003_Homogeneity-12389378/HG003_HiSeq300x_fastq/140721_D00360_0044_AHA66RADXX) and [HG004](ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data//AshkenazimTrio/HG004_NA24143_mother/NIST_HiSeq_HG004_Homogeneity-14572558/HG004_HiSeq300x_fastq/140818_D00360_0046_AHA5R5ADXX) samples. The NA12878 "Platinum Genomes" NGS data is available in the European Nucleotide Archive under project [PRJEB3381](https://www.ebi.ac.uk/ena/browser/view/PRJEB3381). The Polaris SV call set is available at <https://github.com/Illumina/Polaris> and the SV-plaudit call set is available via the [supplemental materials](http://gigadb.org/dataset/100450) for the describing [publication](https://doi.org/10.1093/gigascience/giy064).
