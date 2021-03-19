@@ -3,7 +3,7 @@
 # Benchmark SV genotypers. Note that aspects of this script are specific to the local computing infrastructure.
 
 #SBATCH --job-name=benchmarking
-#SBATCH --output=benchmarking-%j.out
+#SBATCH --output=benchmarking-%A-%a.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=36
@@ -35,16 +35,20 @@ usage()
     cat << EOF
 usage: $(basename "$0") [options] GENOTYPER BAM 
 
-Benchmark SV gneotypers
+Benchmark SV genotypers
 
 Options:
   -h            Print this message
+  -o            Output directory, defaults to temporary directory
 EOF
 }
 
-while getopts "hR:S:c:m:s:t:l:p:z:f:i:p:n:g:j:" Option
+while getopts "ho:" Option
 do
     case $Option in
+        o)
+            OUTPUT_DIR=$OPTARG
+            ;;
         h)
             usage
             exit 0
@@ -116,7 +120,6 @@ if [[ $GENOTYPER =~ ^npsv ]]; then
         -b $BAM_FILE \
         --genome $NPSV_ROOT/etc/human_g1k_v37.genome \
         -o "${OUTPUT_DIR}/stats.json"
-
 fi
 
 if [[ $GENOTYPER == "npsv" ]]; then
@@ -124,13 +127,14 @@ if [[ $GENOTYPER == "npsv" ]]; then
     NPSV_PREFIX="$(basename -s ".vcf.gz" $GIAB_FILTERED_VCF)"
 
     /bin/time -f "Timing,npsv,${MODE},genotyping,${TIME_FORMAT}" \
-    npsv \
+    npsv -v \
         --tempdir $TMPDIR \
-        --threads $SLURM_CPUS_PER_TASK \
+        --threads $THREADS \
         -r $REFERENCE \
         --genome $NPSV_ROOT/etc/human_g1k_v37.genome \
         --gaps $NPSV_ROOT/etc/human_g1k_v37.gaps.bed.gz \
         --stats-path $NPSV_STATS_FILE \
+        --profile HS25 \
         --filter-bed $GIAB_BED \
         -i $GIAB_FILTERED_VCF \
         -b $BAM_FILE \
@@ -138,7 +142,7 @@ if [[ $GENOTYPER == "npsv" ]]; then
         --prefix $NPSV_PREFIX
     
     GENOTYPED_VCF="${OUTPUT_DIR}/${NPSV_PREFIX}.npsv.vcf"
-    bgzip $GENOTYPED_VCF && tabix "${GENOTYPED_VCF}.gz"
+    bgzip -f $GENOTYPED_VCF && tabix "${GENOTYPED_VCF}.gz"
     GENOTYPED_VCF="${GENOTYPED_VCF}.gz"    
 
 elif [[ $GENOTYPER =~ npsv_(single|variant|hybrid) ]]; then
@@ -160,25 +164,25 @@ elif [[ $GENOTYPER =~ npsv_(single|variant|hybrid) ]]; then
 
     # Simulation and genotyping
     /bin/time -f "Timing,npsv,${MODE},genotyping,${TIME_FORMAT}" \
-    npsv \
+    npsv -v \
         --tempdir $TMPDIR \
         --threads $THREADS \
         -r $REFERENCE \
         --genome $NPSV_ROOT/etc/human_g1k_v37.genome \
         --gaps $NPSV_ROOT/etc/human_g1k_v37.gaps.bed.gz \
         --stats-path $NPSV_STATS_FILE \
+        --profile HS25 \
         --filter-bed $GIAB_BED \
         -i $GIAB_FILTERED_VCF \
         -b $BAM_FILE \
         -o $OUTPUT_DIR \
         --prefix $NPSV_PREFIX \
         --DEL-gt-mode $MODE --DEL-n $N --DEL-classifier $KLASS --DEL-hybrid-threshold 1000 \
-        --INS-gt-mode $MODE --INS-n $N --DEL-classifier $KLASS --INS-hybrid-threshold 1000
+        --INS-gt-mode $MODE --INS-n $N --INS-classifier $KLASS --INS-hybrid-threshold 1000
 
     GENOTYPED_VCF="${OUTPUT_DIR}/${NPSV_PREFIX}.npsv.vcf"
-    bgzip $GENOTYPED_VCF && tabix "${GENOTYPED_VCF}.gz"
+    bgzip -f $GENOTYPED_VCF && tabix "${GENOTYPED_VCF}.gz"
     GENOTYPED_VCF="${GENOTYPED_VCF}.gz" 
-
 elif [[ $GENOTYPER == "svviz2_mapq" ]]; then
     module load svviz2
     

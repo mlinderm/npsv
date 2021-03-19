@@ -40,10 +40,10 @@ bwa mem -c 250 -M -v 1 -t 31 \
 samtools index $ALIGN_FILE
 
 ## Download GIAB variants, BED files and filter callset
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz.tbi
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.bed
-wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release/AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1plusTier2_v0.6.1.bed
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.vcf.gz.tbi
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1_v0.6.bed
+wget -N ftp://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/release//AshkenazimTrio/HG002_NA24385_son/NIST_SV_v0.6/HG002_SVs_Tier1plusTier2_v0.6.1.bed
 
 GIAB_VCF=HG002_SVs_Tier1_v0.6.vcf.gz
 GIAB_BED=HG002_SVs_Tier1_v0.6.bed
@@ -53,6 +53,7 @@ GIAB_FILTERED_VCF="${GIAB_VCF%.vcf.gz}.genotyped.passing.tier1and2.vcf.gz"
 cat HG002_SVs_Tier1_v0.6.bed HG002_SVs_Tier1plusTier2_v0.6.1.bed | sort -k1,1 -k2,2n > "${TMPDIR}/tmp.bed"
 bedtools merge -i "${TMPDIR}/tmp.bed" > $GIAB_ALL_TIERS_BED
 
+# Alternately filter with $GIAB_ALL_TIERS_BED
 bcftools view -i '(INFO/sizecat != "20to49")' -g ^miss -f 'PASS,LongReadHomRef' -R $GIAB_BED $GIAB_VCF | \
     bcftools sort -Oz -o $GIAB_FILTERED_VCF
 bcftools index -t $GIAB_FILTERED_VCF
@@ -89,22 +90,38 @@ npsv \
 
 
 ## Concordance analysis with Truvari (incorporating LongReadHomRef calls)
-GIAB_FILTERED_LONGREADHOMREF_VCF="${GIAB_FILTERED_VCF%.vcf.gz}.longreadhomref.vcf.gz"
-GENOTYPED_LONGREADHOMREF_VCF="${NPSV_PREFIX}.npsv.longreadhomref.vcf.gz"
 
-bcftools annotate -x "FILTER/LongReadHomRef" -Oz -o $GIAB_FILTERED_LONGREADHOMREF_VCF $GIAB_FILTERED_VCF
-bcftools index -t $GIAB_FILTERED_LONGREADHOMREF_VCF
+GIAB_FILTERED_DEL_LONGREADHOMREF_VCF="${GIAB_FILTERED_VCF%.vcf.gz}.DEL.longreadhomref.vcf.gz"
+GIAB_FILTERED_INS_LONGREADHOMREF_VCF="${GIAB_FILTERED_VCF%.vcf.gz}.INS.longreadhomref.vcf.gz"
 
-bcftools annotate -x "FILTER/LongReadHomRef" -Oz -o $GENOTYPED_LONGREADHOMREF_VCF "${NPSV_PREFIX}.npsv.vcf" 
-bcftools index -t $GENOTYPED_LONGREADHOMREF_VCF
+GENOTYPED_DEL_LONGREADHOMREF_VCF="${NPSV_PREFIX}.npsv.DEL.longreadhomref.vcf.gz"
+GENOTYPED_INS_LONGREADHOMREF_VCF="${NPSV_PREFIX}.npsv.INS.longreadhomref.vcf.gz"
+
+bcftools annotate -i '(SVTYPE ~ "^DEL")' -x "FILTER/LongReadHomRef" -Oz -o $GIAB_FILTERED_DEL_LONGREADHOMREF_VCF $GIAB_FILTERED_VCF
+bcftools index -t $GIAB_FILTERED_DEL_LONGREADHOMREF_VCF
+
+bcftools annotate -i '(SVTYPE ~ "^INS")' -x "FILTER/LongReadHomRef" -Oz -o $GIAB_FILTERED_INS_LONGREADHOMREF_VCF $GIAB_FILTERED_VCF
+bcftools index -t $GIAB_FILTERED_INS_LONGREADHOMREF_VCF
+
+bcftools annotate -i '(SVTYPE ~ "^DEL")' -x "FILTER/LongReadHomRef" -Oz -o $GENOTYPED_DEL_LONGREADHOMREF_VCF "${NPSV_PREFIX}.npsv.vcf" 
+bcftools index -t $GENOTYPED_DEL_LONGREADHOMREF_VCF
+
+bcftools annotate -i '(SVTYPE ~ "^INS")' -x "FILTER/LongReadHomRef" -Oz -o $GENOTYPED_INS_LONGREADHOMREF_VCF "${NPSV_PREFIX}.npsv.vcf" 
+bcftools index -t $GENOTYPED_INS_LONGREADHOMREF_VCF
 
 module load truvari/genotype
-rm -rf truvari_output
-truvari bench \
-    -f $REFERENCE \
-    -b $GIAB_FILTERED_LONGREADHOMREF_VCF \
-    -c $GENOTYPED_LONGREADHOMREF_VCF \
-    -o truvari_output \
-    --includebed $GIAB_BED \
-    --sizemax 15000000 -s 50 -S 30 --pctsim=0 -r 20 -O 0.6 \
-    --passonly --bSample HG002 --cSample HG002
+
+run_truvari() {
+    rm -rf "truvari_${1}"
+    truvari bench \
+        -f $REFERENCE \
+        -b $3 \
+        -c $2 \
+        -o "truvari_${1}" \
+        --includebed $GIAB_BED \
+        --sizemax 15000000 -s 50 -S 30 --pctsim=0 -r 20 -O 0.6 \
+        --passonly --bSample HG002 --cSample HG002
+}
+
+run_truvari DEL $GENOTYPED_DEL_LONGREADHOMREF_VCF $GIAB_FILTERED_DEL_LONGREADHOMREF_VCF
+run_truvari INS $GENOTYPED_INS_LONGREADHOMREF_VCF $GIAB_FILTERED_INS_LONGREADHOMREF_VCF
