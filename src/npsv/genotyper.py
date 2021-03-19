@@ -393,7 +393,7 @@ def genotype_vcf(
             real_group = typed_real_data.get_group(variant_type)
             sim_group = (
                 sim_group.groupby(VAR_COL + [KLASS_COL])
-                .head(args.downsample)
+                .sample(args.downsample)
                 .reset_index(drop=True)
             )
 
@@ -413,9 +413,10 @@ def genotype_vcf(
 
             # Expand here with additional classifiers
             logging.info(
-                "Building 'single model' %s classifier for %s variants with features: %s",
+                "Building 'single model' %s classifier for %s variants (%d observations) with features: %s",
                 single_classifier,
                 variant_type,
+                sim_group.shape[0],
                 ", ".join(single_features),
             )
             classifier_vcf_metadata[f"npsv_{variant_type}_single_classifier"] = [
@@ -568,9 +569,9 @@ def genotype_vcf(
 
             # Construct VCF call entry
             variant_type = record.var_subtype
-            gt_mode = getattr(args, f"{variant_type}_gt_mode")  
+            gt_mode = getattr(args, f"{variant_type}_gt_mode", "single")  
             if gt_mode == "single" or (gt_mode == "hybrid"
-                and variant.event_length >= getattr(args, f"{variant_type}_hybrid_threshold")
+                and variant.event_length >= getattr(args, f"{variant_type}_hybrid_threshold", 1000)
             ):
                 call = pred_to_vcf(
                     real_group, single_pred[indices], single_prob[indices], ad=real_group[AD_COL].to_numpy().squeeze()
