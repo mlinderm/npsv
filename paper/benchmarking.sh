@@ -120,6 +120,7 @@ if [[ $GENOTYPER =~ ^npsv ]]; then
         -b $BAM_FILE \
         --genome $NPSV_ROOT/etc/human_g1k_v37.genome \
         -o "${OUTPUT_DIR}/stats.json"
+    NPSV_STATS_FILE="${OUTPUT_DIR}/stats.json"
 fi
 
 if [[ $GENOTYPER == "npsv" ]]; then

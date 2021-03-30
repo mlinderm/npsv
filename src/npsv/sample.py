@@ -511,6 +511,9 @@ def compute_coverage_with_goleft(args, input_bam):
                 dtype={"chrom": str},
             )
         )
+        if windows_table.shape[0] == 0:
+            return {}
+            
         # Remove windows with no alignable data
         windows_table["align_len"] = (
             windows_table.seq_len - windows_table.num_N - windows_table.num_oth

@@ -107,7 +107,7 @@ The `--genome` file is used to determine chromosome sizes for various operations
 
 ### Preprocessing to create a "stats" file
 
-NPSV can utilize more information about the aligned reads to improve simulation and feature extraction. The preprocessing step, run with the `preprocess` sub-command for `npsv`, will create a JSON file with the relevant stats. It can compute those stats directly, or extract them from the Picard metrics that may already have been generated as part of many pipelines. For example, the following command would construct the stats file from previously computed Picard metrics.
+NPSV can utilize more information about the aligned reads to improve simulation and feature extraction. The preprocessing step, run with the `preprocess` sub-command for `npsv`, will create a JSON file with the relevant stats. It can compute those stats directly, or extract many of them from the Picard metrics that may already have been generated as part of many pipelines. For example, the following command would construct the stats file from a combination of BAM file analysis with goleft and previously computed Picard metrics. Note that since this example BAM file only includes reads in a small region on chromosome 12, the results for this example command will not be meaningful.
 
 ```
 npsvg preprocess \
@@ -119,7 +119,7 @@ npsvg preprocess \
     -o tests/results/stats.json
 ```
 
-The stats file can then be used with `npsv` via the `--stats-path` option in lieu of directly specifying the sequencing statistics, e.g.
+The stats file can then be used with `npsv` via the `--stats-path` option in lieu of directly specifying the sequencing statistics as shown below (here with a stats file previously generated from the entire HG002 genome).
 
 ```
 npsv \
@@ -135,7 +135,7 @@ npsv \
     --DEL-n 50
 ```
 
-If the Picard metrics are not available, the `preprocess` sub-command can compute the necessary metrics directly, e.g. with the following command. Note that since this example BAM file only includes reads in a small region on chromosome 12, the results for this example command will not be meaningful.
+If the Picard metrics are not available, the `preprocess` sub-command can compute the necessary metrics directly, as shown below. Note that since this example BAM file only includes reads in a small region on chromosome 12, the results for this example command will not be meaningful.
 
 ```
 npsvg preprocess \
