@@ -51,10 +51,11 @@ def report_name(record: vcf.model._Record) -> List[str]:
     # https://github.com/nspies/svviz2/blob/44f7bfc75bf84c1db4563d9fd30bf20967d1c825/src/svviz2/app/variants.py#L259
     id = (record.ID or f"{record.CHROM}_{record.POS}_{record.sv_end}").replace(":","_").replace(";","")
     kind = (record.INFO.get("SVTYPE", None) or record.var_subtype)[:3].lower()
+    end = record.sv_end or (record.POS + len(record.REF) - 1)
     return [
         f"{id}.{kind}_{record.CHROM}_{record.POS-1}",
         f"{id}.{kind}_{record.CHROM}_{record.POS}",
-        f"{id}.SequenceDefinedVariant.{record.CHROM}_{record.POS-1}-{record.sv_end-1}",
+        f"{id}.SequenceDefinedVariant.{record.CHROM}_{record.POS-1}-{end-1}",
     ]
 
 

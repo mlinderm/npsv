@@ -192,6 +192,9 @@ do
         samtools view -S -u  - | \
         sambamba -q sort -t 1 -m 512MiB --tmpdir="$TMPDIR" -o "$ALIGNEDBAM" /dev/stdin
     fi
+
+    # Cleanup SAM and FastQ files
+    rm -f "${READS_PREFIX}.sam" "${READS_PREFIX}1.fq" "${READS_PREFIX}2.fq" "${READS_PREFIX}1.aln" "${READS_PREFIX}2.aln"
 done
 
 if [[ "$SAMPLES" -gt 1 ]]; then
