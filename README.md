@@ -2,6 +2,10 @@
 
 NPSV is a Python-based tool for stand-alone genotyping of previously detected/reported deletion and insertion structural variants (SVs) in short-read whole genome sequencing (WGS) data. NPSV implements a machine learning-based approach for SV genotyping that employs NGS simulation to model the combined effects of the genomic region, sequencer and alignment pipeline. 
 
+NPSV is described in the following publication:
+
+Linderman MD, Paudyal C, Shakeel M, Kelley W, Bashir A, Gelb BD. [NPSV: A simulation-driven approach to genotyping structural variants in whole-genome sequencing data](https://doi.org/10.1093/gigascience/giab046). Gigascience. 2021;10(7).
+
 ## Installation
 
 When cloning NPSV, make sure to recursively clone all of the submodules, i.e. `git clone --recursive git@github.com:mlinderm/npsv.git`.
