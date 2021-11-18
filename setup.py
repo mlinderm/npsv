@@ -86,6 +86,14 @@ def file_find_or_append(original_path, match_pattern, append, sep=" "):
             else:
                 replaced_file.write(line)
 
+def file_find_and_replace(original_path, match_pattern, replace):
+    # Adapted from SeqLib python package.
+    with open(original_path) as original_file:
+        original = original_file.readlines()
+    with open(original_path, "w") as replaced_file:
+        for line in original:
+            replaced_file.write(re.sub(match_pattern, replace, line))
+
 class SeqLibCMakeBuild(CMakeBuild):
     def run(self):
         # To link into a shared library we need to add the -fPIC and other flags to SeqLib dependencies
@@ -94,6 +102,11 @@ class SeqLibCMakeBuild(CMakeBuild):
             os.path.dirname(os.path.realpath(__file__)), "lib/seqlib", "bwa", "Makefile"
         )
         file_find_or_append(bwa_makefile_path, r"^CFLAGS\s*=.*$", ["-fPIC","-Wno-unused-result"])
+
+        bwa_rle_path = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "lib/seqlib", "bwa", "rle.h"
+        )
+        file_find_and_replace(bwa_rle_path, r"^const uint8_t rle_auxtab", r"extern const uint8_t rle_auxtab")
 
         super().run()
 
